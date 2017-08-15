@@ -10,6 +10,8 @@
 #include "rpc/protocol.h"
 #include "uint256.h"
 
+#include "statsd_client.h"
+
 #include <cstdint>
 #include <functional>
 #include <list>
@@ -21,6 +23,8 @@
 #include <univalue.h>
 
 static const unsigned int DEFAULT_RPC_SERIALIZE_VERSION = 1;
+
+extern statsd::StatsdClient statsClient;
 
 class CRPCCommand;
 

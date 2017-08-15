@@ -471,6 +471,9 @@ uint64_t GetTransactionSigOpCount(const CTransaction &tx,
 static bool CheckTransactionCommon(const CTransaction &tx,
                                    CValidationState &state,
                                    bool fCheckDuplicateInputs) {
+    
+    boost::posix_time::ptime start = boost::posix_time::microsec_clock::local_time();
+    
     // Basic checks that don't depend on any context
     if (tx.vin.empty()) {
         return state.DoS(10, false, REJECT_INVALID, "bad-txns-vin-empty");
@@ -520,6 +523,10 @@ static bool CheckTransactionCommon(const CTransaction &tx,
             }
         }
     }
+    
+    boost::posix_time::ptime finish = boost::posix_time::microsec_clock::local_time();
+    boost::posix_time::time_duration diff = finish - start;
+    statsClient.timing("CheckTransaction_us", diff.total_microseconds(), 1.0f);
 
     return true;
 }
@@ -624,6 +631,9 @@ static bool AcceptToMemoryPoolWorker(
     int64_t nAcceptTime, std::list<CTransactionRef> *plTxnReplaced,
     bool fOverrideMempoolLimit, const CAmount &nAbsurdFee,
     std::vector<COutPoint> &coins_to_uncache) {
+    
+    boost::posix_time::ptime start = boost::posix_time::microsec_clock::local_time();
+    
     AssertLockHeld(cs_main);
 
     const CTransaction &tx = *ptx;
@@ -660,6 +670,7 @@ static bool AcceptToMemoryPoolWorker(
 
     // Is it already in the memory pool?
     if (pool.exists(txid)) {
+        statsClient.inc("transactions.duplicate", 1.0f);
         return state.Invalid(false, REJECT_ALREADY_KNOWN,
                              "txn-already-in-mempool");
     }
@@ -920,7 +931,14 @@ static bool AcceptToMemoryPoolWorker(
 
         // Store transaction in memory.
         pool.addUnchecked(txid, entry, setAncestors, validForFeeEstimation);
-
+        
+        statsClient.count("transactions.sizeBytes", nSize, 1.0f);
+        statsClient.count("transactions.fees", nFees, 1.0f);
+        statsClient.count("transactions.inputValue", nValueIn, 1.0f);
+        statsClient.count("transactions.outputValue", nValueOut, 1.0f);
+        statsClient.count("transactions.sigOps", nSigOpsCost, 1.0f);
+        statsClient.count("transactions.priority", dPriority, 1.0f);
+        
         // Trim mempool and check if tx was trimmed.
         if (!fOverrideMempoolLimit) {
             LimitMempoolSize(
@@ -934,7 +952,20 @@ static bool AcceptToMemoryPoolWorker(
 
     GetMainSignals().SyncTransaction(
         tx, nullptr, CMainSignals::SYNC_TRANSACTION_NOT_IN_BLOCK);
-
+    
+    boost::posix_time::ptime finish = boost::posix_time::microsec_clock::local_time();
+    boost::posix_time::time_duration diff = finish - start;
+    statsClient.timing("AcceptToMemoryPool_ms", diff.total_milliseconds(), 1.0f);
+    statsClient.gauge("transactions.txInMemoryPool", pool.size(), 0.1f);
+    statsClient.inc("transactions.accepted", 1.0f);
+    statsClient.count("transactions.inputs", tx.vin.size(), 1.0f);
+    statsClient.count("transactions.outputs", tx.vout.size(), 1.0f);
+    statsClient.gauge("transactions.mempool.totalTransactions", pool.size(), 0.1f);
+    statsClient.gauge("transactions.mempool.totalTxBytes", (int64_t) pool.GetTotalTxSize(), 0.1f);
+    statsClient.gauge("transactions.mempool.memoryUsageBytes", (int64_t) pool.DynamicMemoryUsage(), 0.1f);
+    statsClient.gauge("transactions.mempool.minFeePerKb", pool.GetMinFee(GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000).GetFeePerK(), 0.1f);
+    
+    
     return true;
 }
 
@@ -1228,6 +1259,9 @@ void CheckForkWarningConditionsOnNewFork(CBlockIndex *pindexNewForkTip) {
 }
 
 static void InvalidChainFound(CBlockIndex *pindexNew) {
+    
+    statsClient.inc("warnings.InvalidBlockFound", 1.0f);
+    
     if (!pindexBestInvalid ||
         pindexNew->nChainWork > pindexBestInvalid->nChainWork)
         pindexBestInvalid = pindexNew;
@@ -1248,6 +1282,9 @@ static void InvalidChainFound(CBlockIndex *pindexNew) {
 
 static void InvalidBlockFound(CBlockIndex *pindex,
                               const CValidationState &state) {
+    
+    statsClient.inc("warnings.InvalidBlockFound", 1.0f);
+    
     if (!state.CorruptionPossible()) {
         pindex->nStatus |= BLOCK_FAILED_VALID;
         setDirtyBlockIndex.insert(pindex);
@@ -1279,6 +1316,7 @@ void UpdateCoins(const CTransaction &tx, CCoinsViewCache &inputs,
         }
     }
     // add outputs
+    statsClient.gauge("transactions.txCacheSize", inputs.GetCacheSize(), 0.1f);
     inputs.ModifyNewCoins(tx.GetId(), tx.IsCoinBase())->FromTx(tx, nHeight);
 }
 
@@ -1365,6 +1403,7 @@ bool CheckInputs(const CTransaction &tx, CValidationState &state,
                  unsigned int flags, bool cacheStore,
                  const PrecomputedTransactionData &txdata,
                  std::vector<CScriptCheck> *pvChecks) {
+    boost::posix_time::ptime start = boost::posix_time::microsec_clock::local_time();
     assert(!tx.IsCoinBase());
 
     if (!Consensus::CheckTxInputs(tx, state, inputs, GetSpendHeight(inputs))) {
@@ -1446,7 +1485,11 @@ bool CheckInputs(const CTransaction &tx, CValidationState &state,
                           ScriptErrorString(check.GetScriptError())));
         }
     }
-
+    
+    boost::posix_time::ptime finish = boost::posix_time::microsec_clock::local_time();
+    boost::posix_time::time_duration diff = finish - start;
+    statsClient.timing("CheckInputs_ms", diff.total_milliseconds(), 1.0f);
+    
     return true;
 }
 
@@ -1573,6 +1616,7 @@ DisconnectResult ApplyTxInUndo(const CTxInUndo &undo, CCoinsViewCache &view,
 static DisconnectResult DisconnectBlock(const CBlock &block,
                                         const CBlockIndex *pindex,
                                         CCoinsViewCache &view) {
+     
     assert(pindex->GetBlockHash() == view.GetBestBlock());
 
     CBlockUndo blockUndo;
@@ -1593,6 +1637,8 @@ static DisconnectResult DisconnectBlock(const CBlock &block,
 DisconnectResult ApplyBlockUndo(const CBlockUndo &blockUndo,
                                 const CBlock &block, const CBlockIndex *pindex,
                                 CCoinsViewCache &view) {
+    boost::posix_time::ptime start = boost::posix_time::microsec_clock::local_time();
+    
     bool fClean = true;
 
     if (blockUndo.vtxundo.size() + 1 != block.vtx.size()) {
@@ -1655,7 +1701,12 @@ DisconnectResult ApplyBlockUndo(const CBlockUndo &blockUndo,
 
     // Move best block pointer to previous block.
     view.SetBestBlock(block.hashPrevBlock);
-
+    
+    boost::posix_time::ptime finish = boost::posix_time::microsec_clock::local_time();
+    boost::posix_time::time_duration diff = finish - start;
+    statsClient.timing("DisconnectBlock_ms", diff.total_milliseconds(), 1.0f);
+    statsClient.gauge("transactions.txCacheSize", view.GetCacheSize(), 1.0f);
+    
     return fClean ? DISCONNECT_OK : DISCONNECT_UNCLEAN;
 }
 
@@ -1762,6 +1813,9 @@ static bool ConnectBlock(const Config &config, const CBlock &block,
                          CValidationState &state, CBlockIndex *pindex,
                          CCoinsViewCache &view, const CChainParams &chainparams,
                          bool fJustCheck = false) {
+    
+    boost::posix_time::ptime start = boost::posix_time::microsec_clock::local_time();
+    
     AssertLockHeld(cs_main);
 
     int64_t nTimeStart = GetTimeMicros();
@@ -2080,6 +2134,7 @@ static bool ConnectBlock(const Config &config, const CBlock &block,
     }
 
     // add this block to the view's block chain
+    statsClient.gauge("transactions.txCacheSize", view.GetCacheSize(), 1.0f);
     view.SetBestBlock(pindex->GetBlockHash());
 
     int64_t nTime5 = GetTimeMicros();
@@ -2102,7 +2157,11 @@ static bool ConnectBlock(const Config &config, const CBlock &block,
     if (!hasUAHF && IsUAHFenabled(config, pindex)) {
         mempool.clear();
     }
-
+    
+    boost::posix_time::ptime finish = boost::posix_time::microsec_clock::local_time();
+    boost::posix_time::time_duration diff = finish - start;
+    statsClient.timing("ConnectBlock_ms", diff.total_milliseconds(), 1.0f);
+    
     return true;
 }
 
@@ -2453,6 +2512,9 @@ static bool ConnectTip(const Config &config, CValidationState &state,
                        CBlockIndex *pindexNew,
                        const std::shared_ptr<const CBlock> &pblock,
                        ConnectTrace &connectTrace) {
+    
+    boost::posix_time::ptime start = boost::posix_time::microsec_clock::local_time();
+    
     const CChainParams &chainparams = config.GetChainParams();
     assert(pindexNew->pprev == chainActive.Tip());
     // Read block from disk.
@@ -2514,6 +2576,11 @@ static bool ConnectTip(const Config &config, CValidationState &state,
              (nTime6 - nTime5) * 0.001, nTimePostConnect * 0.000001);
     LogPrint("bench", "- Connect block: %.2fms [%.2fs]\n",
              (nTime6 - nTime1) * 0.001, nTimeTotal * 0.000001);
+    
+    boost::posix_time::ptime finish = boost::posix_time::microsec_clock::local_time();
+    boost::posix_time::time_duration diff = finish - start;
+    statsClient.timing("ConnectTip_ms", diff.total_milliseconds(), 1.0f);
+    
     return true;
 }
 
@@ -2721,6 +2788,8 @@ bool ActivateBestChain(const Config &config, CValidationState &state,
     // far from a guarantee. Things in the P2P/RPC will often end up calling
     // us in the middle of ProcessNewBlock - do not assume pblock is set
     // sanely for performance or correctness!
+    
+    boost::posix_time::ptime start = boost::posix_time::microsec_clock::local_time();
 
     CBlockIndex *pindexMostWork = nullptr;
     CBlockIndex *pindexNewTip = nullptr;
@@ -2802,6 +2871,10 @@ bool ActivateBestChain(const Config &config, CValidationState &state,
         }
     } while (pindexNewTip != pindexMostWork);
     CheckBlockIndex(config.GetChainParams().GetConsensus());
+    
+    boost::posix_time::ptime finish = boost::posix_time::microsec_clock::local_time();
+    boost::posix_time::time_duration diff = finish - start;
+    statsClient.timing("ActivateBestChain_ms", diff.total_milliseconds(), 1.0f);
 
     // Write changes periodically to disk, after relay.
     if (!FlushStateToDisk(state, FLUSH_STATE_PERIODIC)) {
@@ -3139,6 +3212,9 @@ bool CheckBlock(const Config &config, const CBlock &block,
                 CValidationState &state,
                 const Consensus::Params &consensusParams, bool fCheckPOW,
                 bool fCheckMerkleRoot) {
+    
+    boost::posix_time::ptime start = boost::posix_time::microsec_clock::local_time();
+    
     // These are checks that are independent of context.
     if (block.fChecked) {
         return true;
@@ -3244,7 +3320,22 @@ bool CheckBlock(const Config &config, const CBlock &block,
     if (fCheckPOW && fCheckMerkleRoot) {
         block.fChecked = true;
     }
-
+    
+    
+    boost::posix_time::ptime finish = boost::posix_time::microsec_clock::local_time();
+    boost::posix_time::time_duration diff = finish - start;
+    statsClient.timing("CheckBlock_us", diff.total_microseconds(), 1.0f);
+    statsClient.gauge("blocks.currentSizeBytes", ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS), 1.0f);
+    statsClient.gauge("blocks.currentSizeWithWitnessBytes", ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION), 1.0f);
+    statsClient.gauge("blocks.currentWeight", ::GetBlockWeight(block), 1.0f);
+    statsClient.gauge("blocks.currentHeight", chainActive.Height(), 1.0f);
+    statsClient.gauge("blocks.currentVersion", block.nVersion, 1.0f);
+    statsClient.gauge("blocks.currentNumTransactions", block.vtx.size(), 1.0f);
+    statsClient.gauge("blocks.currentSigOps", nSigOps, 1.0f);
+    
+    
+    
+    
     return true;
 }
 
@@ -3542,6 +3633,8 @@ static bool AcceptBlock(const Config &config,
                         CValidationState &state, CBlockIndex **ppindex,
                         bool fRequested, const CDiskBlockPos *dbp,
                         bool *fNewBlock) {
+    boost::posix_time::ptime start = boost::posix_time::microsec_clock::local_time();
+    
     AssertLockHeld(cs_main);
 
     const CBlock &block = *pblock;
@@ -3650,6 +3743,10 @@ static bool AcceptBlock(const Config &config,
     } catch (const std::runtime_error &e) {
         return AbortNode(state, std::string("System error: ") + e.what());
     }
+    
+    boost::posix_time::ptime finish = boost::posix_time::microsec_clock::local_time();
+    boost::posix_time::time_duration diff = finish - start;
+    statsClient.timing("AcceptBlock_us", diff.total_microseconds(), 1.0f);
 
     if (fCheckForPruning) {
         // we just allocated more disk space for block files.

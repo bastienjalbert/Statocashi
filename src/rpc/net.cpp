@@ -20,6 +20,9 @@
 #include "validation.h"
 #include "version.h"
 
+#include <boost/assign/list_of.hpp>
+#include <boost/foreach.hpp>
+
 #include <univalue.h>
 
 using namespace std;

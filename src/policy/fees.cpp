@@ -13,6 +13,11 @@
 #include "txmempool.h"
 #include "util.h"
 
+#include "statsd_client.h"
+#include <boost/lexical_cast.hpp>
+
+statsd::StatsdClient statsClient;
+
 void TxConfirmStats::Initialize(std::vector<double> &defaultBuckets,
                                 unsigned int maxConfirms, double _decay) {
     decay = _decay;
@@ -441,6 +446,17 @@ void CBlockPolicyEstimator::processBlock(
 
     // Update all exponential averages with the current block state
     feeStats.UpdateMovingAverages();
+    
+     // emit stats for estimated fees
+    for (unsigned int i = 1; i <= MAX_BLOCK_CONFIRMS; i++)
+    {
+        std::string feeName = "estimates.fee.block" + boost::lexical_cast<std::string>(i);
+        double feeEstimate = feeStats.EstimateMedianVal(i, SUFFICIENT_FEETXS, MIN_SUCCESS_PCT, true, nBestSeenHeight);
+        if (feeEstimate > 0)
+            statsClient.gauge(feeName, feeEstimate);
+        else
+            statsClient.gauge(feeName, 0);
+    }
 
     LogPrint("estimatefee", "Blockpolicy after updating estimates for %u of %u "
                             "txs in block, since last block %u of %u tracked, "
