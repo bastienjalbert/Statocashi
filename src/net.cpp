@@ -7,8 +7,7 @@
 #include "config/bitcoin-config.h"
 #endif
 
-#include "net.h"
-
+#include "net.h" 
 #include "addrman.h"
 #include "chainparams.h"
 #include "clientversion.h"
@@ -22,6 +21,8 @@
 #include "scheduler.h"
 #include "ui_interface.h"
 #include "utilstrencodings.h"
+
+#include <boost/foreach.hpp>
 
 #ifdef WIN32
 #include <string.h>

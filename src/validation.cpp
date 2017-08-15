@@ -936,7 +936,7 @@ static bool AcceptToMemoryPoolWorker(
         statsClient.count("transactions.fees", nFees, 1.0f);
         statsClient.count("transactions.inputValue", nValueIn, 1.0f);
         statsClient.count("transactions.outputValue", nValueOut, 1.0f);
-        statsClient.count("transactions.sigOps", nSigOpsCost, 1.0f);
+        statsClient.count("transactions.sigOps", nSigOpsCount, 1.0f);
         statsClient.count("transactions.priority", dPriority, 1.0f);
         
         // Trim mempool and check if tx was trimmed.
@@ -3325,9 +3325,10 @@ bool CheckBlock(const Config &config, const CBlock &block,
     boost::posix_time::ptime finish = boost::posix_time::microsec_clock::local_time();
     boost::posix_time::time_duration diff = finish - start;
     statsClient.timing("CheckBlock_us", diff.total_microseconds(), 1.0f);
-    statsClient.gauge("blocks.currentSizeBytes", ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS), 1.0f);
+    statsClient.gauge("blocks.currentSizeBytes", ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION), 1.0f);
     statsClient.gauge("blocks.currentSizeWithWitnessBytes", ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION), 1.0f);
-    statsClient.gauge("blocks.currentWeight", ::GetBlockWeight(block), 1.0f);
+    /* GetBlockWeight doesn't exist on Bitcoin ABC ... TODO : check how to deal with */
+    /*statsClient.gauge("blocks.currentWeight", ::GetBlockWeight(block), 1.0f);*/
     statsClient.gauge("blocks.currentHeight", chainActive.Height(), 1.0f);
     statsClient.gauge("blocks.currentVersion", block.nVersion, 1.0f);
     statsClient.gauge("blocks.currentNumTransactions", block.vtx.size(), 1.0f);
