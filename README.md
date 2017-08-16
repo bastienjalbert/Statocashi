@@ -108,10 +108,10 @@ Legend : <-/-> = dataflux
 
 ### Statocashi node :
 
-**Clone the github projet into a folder where you want to install the node : **
+**Clone the github projet into a folder where you want to install the node :**
 >``` root@bash: sudo git clone https://github.com/bastienjalbert/Statocashi.git ```
 
-**Dependencies problems ? Take a loot at build notes : [https://github.com/bastienjalbert/Statocashi/blob/master/build-unix.md]**
+**Check dependencies** Take a loot at build notes : [https://github.com/bastienjalbert/Statocashi/blob/master/build-unix.md]
 
 **Compile the project**
 > ``` root@bash: cd /path/to/cloned/statocashi/repo ```
