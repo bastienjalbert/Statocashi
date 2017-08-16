@@ -18,7 +18,7 @@ TODO : Need to fix
 
 Preview 
 -------
-[http://163.172.219.62:3000] : demonstration website. 
+[https://statocashi.info/] : demonstration website. 
 Domain name soon .. ;)
 
 
