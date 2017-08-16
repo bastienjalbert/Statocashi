@@ -12,10 +12,9 @@ Version
 -------
 16 August 2017 : First fork from Bitcoin ABC and Statoshi functions implementation
 TODO : Need to fix 
--Recommanded Transaction Fee for Target Confirmation in X Blocks
--Mining charts 
--Maybe Transactions Accepted vs Rejected ?
--
+- Recommanded Transaction Fee for Target Confirmation in X Blocks
+- Mining charts 
+- Maybe Transactions Accepted vs Rejected ?
 
 Preview 
 -------
