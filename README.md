@@ -155,7 +155,7 @@ When your node will be totally synced (all blocks downloaded) you can paste this
 > ``` root@bash: cd /path/to/cloned/statocashi/repo/src ```
 > ``` root@bash: ./bitcoind -conf=/statocashi/node_files/bitcoin.conf -daemon ```
 
-At this stage, you can access to your grafana node (http://ip_addr:3000) (default login admin/admin) and began to copy my Dashboard (from preview website) to your grafana.
+At this stage, you can access to your grafana node (http://ip_addr:3000) (default login admin/admin) and began to copy my Dashboard (from preview website) to your grafana. Don't forget to add the Datasource (graphite : localhost:8181) to your Grafana configuration file.
 
 Notice that you may have to totally sync your node to see coherent data ...
 
