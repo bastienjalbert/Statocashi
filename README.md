@@ -18,7 +18,7 @@ TODO : Need to fix
 
 Preview 
 -------
-[Click here][1] to see the demonstration website. 
+[http://163.172.219.62:3000] : demonstration website. 
 Domain name soon .. ;)
 
 
@@ -31,19 +31,19 @@ Statocashi node -> statsd -> graphite <- grafana (web interface)
 Legend : <-/-> = dataflux
 
 ### Dependencies :
-> **Node.js:** [Download][2] and install node.js, on ubuntu just run ``` root@bash: sudo apt-get install nodejs npm ```.
+> **Node.js:** Download node [http://nodejs.org/download/] and install node.js, on ubuntu just run ``` root@bash: sudo apt-get install nodejs npm ```.
 
 > **Forever:** just run ``` root@bash: sudo npm install forever ```.
 
-> **Statsd:** [Download][3] the github repo of statsd and copy all files in a folder (like /opt/statsd/).
+> **Statsd:** Download [https://github.com/etsy/statsd] (the github repo of statsd) and copy all files in a folder (like /opt/statsd/).
 
-> **Graphite:** There are many way to install graphite. I used this one : [Install graphite][4]. If you had dependencies problems [you can try this][5].
+> **Graphite:** There are many way to install graphite. I used this one : [http://graphite.readthedocs.io/en/latest/install-pip.html]. If you had dependencies problems you can try this : [https://pastebin.com/raw/a9v5UkbK].
 
 > **Apache2:** Debian/ubuntu based ``` root@bash: sudo apt-get install apache2 ```.
 
 > **Memcached:** Debian/ubuntu based ``` root@bash: sudo apt-get install memcached ```.
 
-> **Grafana:** Here too, this should be enough ``` root@bash: sudo apt-get install grafana ``` or check at [grafana website][6].
+> **Grafana:** Here too, this should be enough ``` root@bash: sudo apt-get install grafana ``` or check at [http://docs.grafana.org/installation/].
 
 ### Configuration :
 
@@ -111,7 +111,7 @@ Legend : <-/-> = dataflux
 **Clone the github projet into a folder where you want to install the node : **
 >``` root@bash: sudo git clone https://github.com/bastienjalbert/Statocashi.git ```
 
-**Dependencies problems ? Take a loot at [build notes][7]**
+**Dependencies problems ? Take a loot at build notes : [https://github.com/bastienjalbert/Statocashi/blob/master/build-unix.md]**
 
 **Compile the project**
 > ``` root@bash: cd /path/to/cloned/statocashi/repo ```
@@ -165,13 +165,6 @@ License
 -------
 
 Statocashi is released under the terms of the MIT license. See http://opensource.org/licenses/MIT for more information.
-[1]: http://163.172.219.62:3000
-[2]: http://nodejs.org/download/
-[3]: https://github.com/etsy/statsd
-[4]: http://graphite.readthedocs.io/en/latest/install-pip.html
-[5]: https://pastebin.com/raw/a9v5UkbK
-[6]: http://docs.grafana.org/installation/
-[7]: https://github.com/bastienjalbert/Statocashi/blob/master/build-unix.md
 
 Valuable links :
 ----------------
