@@ -6,11 +6,13 @@ What is Statocashi ?
 
 Statocashi is a fork of JLOPP Statoshi (http://statoshi.info) adapted to work with
 bitcoin cash. It use bitcoin abc core and most added code from statoshi.
+
 https://github.com/jlopp/statoshi + https://github.com/Bitcoin-ABC/bitcoin-abc = Statocashi
 
 Version
 -------
 16 August 2017 : First fork from Bitcoin ABC and Statoshi functions implementation.
+
 19 August 2017 : Fix on mining chart, because of configuration problem. New features (like price) will be added soon, they are already available on website.
                    
 
