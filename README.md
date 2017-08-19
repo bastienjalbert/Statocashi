@@ -10,16 +10,16 @@ https://github.com/jlopp/statoshi + https://github.com/Bitcoin-ABC/bitcoin-abc =
 
 Version
 -------
-16 August 2017 : First fork from Bitcoin ABC and Statoshi functions implementation
+16 August 2017 : First fork from Bitcoin ABC and Statoshi functions implementation.
+19 August 2017 : Fix on mining chart, because of configuration problem. New features (like price) will be added soon, they are already available on website.
+                   
+
 TODO : Need to fix 
-- Recommanded Transaction Fee for Target Confirmation in X Blocks
-- Mining charts 
-- Maybe Transactions Accepted vs Rejected ?
+- Recommanded Transaction Fee for Target Confirmation in X Blocks  
 
 Preview 
 -------
-[https://statocashi.info/] : demonstration website. 
-Domain name soon .. ;)
+[https://statocashi.info/] : demonstration website.  
 
 
 How to install ?
@@ -123,6 +123,14 @@ Now be patient, it depend of your computer (15 mins ~ with 4 Cores i5, more than
 
 **Create a bitcoin.conf file**
 
+First create a file to notify mining info and txout info :
+> ``` root@bash: nano /statocashi/where_you_want/notify.sh ``` then paste this :
+> ```#!/bin/bash
+>/statocashi/repo/src/bitcoin-cli getmininginfo 
+>sleep 30
+>/statocashi/repo/src/bitcoin-cli gettxoutsetinf
+> ```
+
 You can create the file like I do below, or if you had already downloaded the blockchain you can add the following conf lines to you current bitcoin.conf
 
 > ``` root@bash: nano /statocashi/node_files/bitcoin.conf ``` then paste this :
@@ -133,9 +141,10 @@ You can create the file like I do below, or if you had already downloaded the bl
 >rpcbind=127.0.0.1
 ># this is my node IP  ;)
 >addnode=163.172.219.62:8333 
+># note that you may want to use blocknotify after the node be totally synced (all blocks downloaded) to avoid slow down when downloading the blockchain
+>blocknotify=/statocashi/where_you_want/notify.sh
 >```
-When your node will be totally synced (all blocks downloaded) you can paste this line too :
-> ```blocknotify=/statocashi/repo/src/bitcoin-cli getmininginfo && sleep 30 && /statocashi/repo/src/bitcoin-cli gettxoutsetinf ```
+
 
 ### Run :
 
