@@ -13,7 +13,7 @@ Version
 -------
 16 August 2017 : First fork from Bitcoin ABC and Statoshi functions implementation.
 
-19 August 2017 : Fix on mining chart, because of configuration problem. New features (like price) will be added soon, they are already available on website.
+19 August 2017 : Fix the mining chart issue (configuration problem). New features (like price) will be added soon, they are already available on the preview website.
                    
 
 TODO : Need to fix 
