@@ -51,13 +51,13 @@ TransactionRecord::decomposeTransaction(const CWallet *wallet,
                 TransactionRecord sub(hash, nTime);
                 CTxDestination address;
                 sub.idx = i; // vout index
-                sub.credit = txout.nValue;
+                sub.credit = txout.nValue.GetSatoshis();
                 sub.involvesWatchAddress = mine & ISMINE_WATCH_ONLY;
                 if (ExtractDestination(txout.scriptPubKey, address) &&
                     IsMine(*wallet, address)) {
                     // Received by Bitcoin Address
                     sub.type = TransactionRecord::RecvWithAddress;
-                    sub.address = CBitcoinAddress(address).ToString();
+                    sub.address = EncodeDestination(address);
                 } else {
                     // Received by IP connection (deprecated features), or a
                     // multisignature or other non-simple transaction
@@ -101,7 +101,7 @@ TransactionRecord::decomposeTransaction(const CWallet *wallet,
             //
             // Debit
             //
-            CAmount nTxFee = nDebit - wtx.tx->GetValueOut();
+            Amount nTxFee = nDebit - wtx.tx->GetValueOut();
 
             for (unsigned int nOut = 0; nOut < wtx.tx->vout.size(); nOut++) {
                 const CTxOut &txout = wtx.tx->vout[nOut];
@@ -119,17 +119,17 @@ TransactionRecord::decomposeTransaction(const CWallet *wallet,
                 if (ExtractDestination(txout.scriptPubKey, address)) {
                     // Sent to Bitcoin Address
                     sub.type = TransactionRecord::SendToAddress;
-                    sub.address = CBitcoinAddress(address).ToString();
+                    sub.address = EncodeDestination(address);
                 } else {
                     // Sent to IP, or other non-address transaction like OP_EVAL
                     sub.type = TransactionRecord::SendToOther;
                     sub.address = mapValue["to"];
                 }
 
-                CAmount nValue = txout.nValue;
+                CAmount nValue = txout.nValue.GetSatoshis();
                 /* Add fee to first output */
                 if (nTxFee > 0) {
-                    nValue += nTxFee;
+                    nValue += nTxFee.GetSatoshis();
                     nTxFee = 0;
                 }
                 sub.debit = -nValue;

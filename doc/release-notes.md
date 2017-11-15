@@ -1,11 +1,8 @@
-Bitcoin ABC version 0.14.6 is now available from:
+Bitcoin ABC version 0.16.0 is now available from:
 
-  <https://download.bitcoinabc.org/0.14.6/>
+  <https://download.bitcoinabc.org/0.16.0/>
 
 This release includes the following features and fixes:
- - Updated debian packaging
- - Updated FreeBSD build instructions
- - Fix a bug where a node would erroneously increase the ban score of its peers when it hasn't caught up with the chain tip
- - Added various detail about peer misbehaving
- - Add tooling to help maintaing good style for python code
- - Added criptolayer.net DNS seeds
+
+- New difficulty adjustement algorithm due to activate on Nov, 13
+- Start enforcing LOW_S and NULLFAIL after Nov, 13

@@ -28,7 +28,6 @@
 #include <utility>
 #include <vector>
 
-#include <boost/shared_ptr.hpp>
 #include <boost/thread.hpp>
 
 extern CWallet *pwalletMain;
@@ -51,7 +50,7 @@ static const CAmount DEFAULT_TRANSACTION_MINFEE = 1000;
 //! minimum recommended increment for BIP 125 replacement txs
 static const CAmount WALLET_INCREMENTAL_RELAY_FEE = 5000;
 //! target minimum change amount
-static const CAmount MIN_CHANGE = CENT;
+static const CAmount MIN_CHANGE = CENT.GetSatoshis();
 //! final minimum change amount after paying for fees
 static const CAmount MIN_FINAL_CHANGE = MIN_CHANGE / 2;
 //! Default for -spendzeroconfchange
@@ -754,13 +753,12 @@ public:
     void UpdateTimeFirstKey(int64_t nCreateTime);
 
     //! Adds an encrypted key to the store, and saves it to disk.
-    bool
-    AddCryptedKey(const CPubKey &vchPubKey,
-                  const std::vector<unsigned char> &vchCryptedSecret) override;
+    bool AddCryptedKey(const CPubKey &vchPubKey,
+                       const std::vector<uint8_t> &vchCryptedSecret) override;
     //! Adds an encrypted key to the store, without saving it to disk (used by
     //! LoadWallet)
     bool LoadCryptedKey(const CPubKey &vchPubKey,
-                        const std::vector<unsigned char> &vchCryptedSecret);
+                        const std::vector<uint8_t> &vchCryptedSecret);
     bool AddCScript(const CScript &redeemScript) override;
     bool LoadCScript(const CScript &redeemScript);
 
@@ -941,7 +939,7 @@ public:
         }
     }
 
-    void GetScriptForMining(boost::shared_ptr<CReserveScript> &script) override;
+    void GetScriptForMining(std::shared_ptr<CReserveScript> &script) override;
     void ResetRequestCount(const uint256 &hash) override {
         LOCK(cs_wallet);
         mapRequestCount[hash] = 0;

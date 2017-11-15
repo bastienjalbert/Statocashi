@@ -17,6 +17,7 @@
 #include "random.h"
 #include "rpc/register.h"
 #include "rpc/server.h"
+#include "script/scriptcache.h"
 #include "script/sigcache.h"
 #include "txdb.h"
 #include "txmempool.h"
@@ -25,14 +26,24 @@
 
 #include "test/testutil.h"
 
+#include <cstdio>
+#include <iostream>
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <functional>
+#include <list>
 #include <memory>
+#include <thread>
 
 #include <boost/filesystem.hpp>
 #include <boost/test/unit_test.hpp>
 #include <boost/thread.hpp>
 
 std::unique_ptr<CConnman> g_connman;
-FastRandomContext insecure_rand_ctx(true);
+uint256 insecure_rand_seed = GetRandHash();
+FastRandomContext insecure_rand_ctx(insecure_rand_seed);
 
 extern bool fPrintToConsole;
 extern void noui_connect();
@@ -42,6 +53,7 @@ BasicTestingSetup::BasicTestingSetup(const std::string &chainName) {
     SetupEnvironment();
     SetupNetworking();
     InitSignatureCache();
+    InitScriptExecutionCache();
     // Don't want to write to debug.log file.
     fPrintToDebugLog = false;
     fCheckBlockIndex = true;
@@ -50,7 +62,6 @@ BasicTestingSetup::BasicTestingSetup(const std::string &chainName) {
 
     // Set config parameters to default.
     GlobalConfig config;
-    config.SetUAHFStartTime(DEFAULT_UAHF_START_TIME);
     config.SetMaxBlockSize(DEFAULT_MAX_BLOCK_SIZE);
 }
 
@@ -88,7 +99,7 @@ TestingSetup::TestingSetup(const std::string &chainName)
     }
 
     // Deterministic randomness for tests.
-    g_connman = std::unique_ptr<CConnman>(new CConnman(0x1337, 0x1337));
+    g_connman = std::unique_ptr<CConnman>(new CConnman(config, 0x1337, 0x1337));
     connman = g_connman.get();
     RegisterNodeSignals(GetNodeSignals());
 }
@@ -163,12 +174,12 @@ CTxMemPoolEntry TestMemPoolEntryHelper::FromTx(const CTransaction &txn,
                                                CTxMemPool *pool) {
     // Hack to assume either it's completely dependent on other mempool txs or
     // not at all.
-    CAmount inChainValue =
-        pool && pool->HasNoInputsOf(txn) ? txn.GetValueOut() : 0;
+    Amount inChainValue =
+        pool && pool->HasNoInputsOf(txn) ? txn.GetValueOut() : Amount(0);
 
     return CTxMemPoolEntry(MakeTransactionRef(txn), nFee, nTime, dPriority,
-                           nHeight, inChainValue, spendsCoinbase, sigOpCost,
-                           lp);
+                           nHeight, inChainValue.GetSatoshis(), spendsCoinbase,
+                           sigOpCost, lp);
 }
 
 void Shutdown(void *parg) {
@@ -182,3 +193,72 @@ void StartShutdown() {
 bool ShutdownRequested() {
     return false;
 }
+
+namespace {
+// A place to put misc. setup code eg "the travis workaround" that needs to run
+// at program startup and exit
+struct Init {
+    Init();
+    ~Init();
+
+    std::list<std::function<void(void)>> cleanup;
+};
+
+Init init;
+
+Init::Init() {
+
+    if (getenv("TRAVIS_NOHANG_WORKAROUND")) {
+        // This is a workaround for MinGW/Win32 builds on Travis sometimes
+        // hanging due to no output received by Travis after a 10-minute
+        // timeout.
+        // The strategy here is to let the jobs finish however long they take
+        // on Travis, by feeding Travis output.  We start a parallel thread
+        // that just prints out '.' once per second.
+        struct Private {
+            Private() : stop(false) {}
+            std::atomic_bool stop;
+            std::thread thr;
+            std::condition_variable cond;
+            std::mutex mut;
+        } *p = new Private;
+
+        p->thr = std::thread([p] {
+            // thread func.. print dots
+            std::unique_lock<std::mutex> lock(p->mut);
+            unsigned ctr = 0;
+            while (!p->stop) {
+                if (ctr) {
+                    // skip first period to allow app to print first
+                    std::cerr << "." << std::flush;
+                }
+                if (!(++ctr % 79)) {
+                    // newline once in a while to keep travis happy
+                    std::cerr << std::endl;
+                }
+                p->cond.wait_for(lock, std::chrono::milliseconds(1000));
+            }
+        });
+
+        cleanup.emplace_back([p]() {
+            // cleanup function to kill the thread and delete the struct
+            p->mut.lock();
+            p->stop = true;
+            p->cond.notify_all();
+            p->mut.unlock();
+            if (p->thr.joinable()) {
+                p->thr.join();
+            }
+            delete p;
+        });
+    }
+}
+
+Init::~Init() {
+    for (auto &f : cleanup) {
+        if (f) {
+            f();
+        }
+    }
+}
+} // end anonymous namespace

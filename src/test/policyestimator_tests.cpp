@@ -106,7 +106,7 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates) {
         }
     }
 
-    std::vector<CAmount> origFeeEst;
+    std::vector<Amount> origFeeEst;
     // Highest feerate is 10*baseRate and gets in all blocks, second highest
     // feerate is 9*baseRate and gets in 9/10 blocks = 90%, third highest
     // feerate is 8*base rate, and gets in 8/10 blocks = 80%, so estimateFee(1)
@@ -169,8 +169,9 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates) {
         BOOST_CHECK(mpool.estimateFee(i) == CFeeRate(0) ||
                     mpool.estimateFee(i).GetFeePerK() >
                         origFeeEst[i - 1] - deltaFee);
-        BOOST_CHECK(mpool.estimateSmartFee(i, &answerFound).GetFeePerK() >
-                    origFeeEst[answerFound - 1] - deltaFee);
+        Amount a1 = mpool.estimateSmartFee(i, &answerFound).GetFeePerK();
+        Amount a2 = origFeeEst[answerFound - 1] - deltaFee;
+        BOOST_CHECK(a1 > a2);
     }
 
     // Mine all those transactions

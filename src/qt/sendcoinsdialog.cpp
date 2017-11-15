@@ -597,7 +597,8 @@ void SendCoinsDialog::processSendCoinsReturn(
             msgParams.first =
                 tr("A fee higher than %1 is considered an absurdly high fee.")
                     .arg(BitcoinUnits::formatWithUnit(
-                        model->getOptionsModel()->getDisplayUnit(), maxTxFee));
+                        model->getOptionsModel()->getDisplayUnit(),
+                        maxTxFee.GetSatoshis()));
             break;
         case WalletModel::PaymentRequestExpired:
             msgParams.first = tr("Payment request expired.");
@@ -721,7 +722,7 @@ void SendCoinsDialog::updateSmartFeeLabel() {
         ui->labelSmartFee->setText(
             BitcoinUnits::formatWithUnit(
                 model->getOptionsModel()->getDisplayUnit(),
-                std::max(CWallet::fallbackFee.GetFeePerK(),
+                std::max(CWallet::fallbackFee.GetFeePerK().GetSatoshis(),
                          CWallet::GetRequiredFee(1000))) +
             "/kB");
         // (Smart fee not initialized yet. This usually takes a few blocks...)
@@ -731,7 +732,8 @@ void SendCoinsDialog::updateSmartFeeLabel() {
         ui->labelSmartFee->setText(
             BitcoinUnits::formatWithUnit(
                 model->getOptionsModel()->getDisplayUnit(),
-                std::max(feeRate.GetFeePerK(), CWallet::GetRequiredFee(1000))) +
+                std::max(feeRate.GetFeePerK().GetSatoshis(),
+                         CWallet::GetRequiredFee(1000))) +
             "/kB");
         ui->labelSmartFee2->hide();
         ui->labelFeeEstimation->setText(
@@ -828,21 +830,18 @@ void SendCoinsDialog::coinControlChangeEdited(const QString &text) {
         CoinControlDialog::coinControl->destChange = CNoDestination();
         ui->labelCoinControlChangeLabel->setStyleSheet("QLabel{color:red;}");
 
-        CBitcoinAddress addr = CBitcoinAddress(text.toStdString());
+        const CTxDestination dest = DecodeDestination(text.toStdString());
 
         if (text.isEmpty()) {
             // Nothing entered
             ui->labelCoinControlChangeLabel->setText("");
-        } else if (!addr.IsValid()) {
+        } else if (!IsValidDestination(dest)) {
             // Invalid address
             ui->labelCoinControlChangeLabel->setText(
                 tr("Warning: Invalid Bitcoin address"));
         } else {
             // Valid address
-            CKeyID keyid;
-            addr.GetKeyID(keyid);
-            // Unknown change address
-            if (!model->havePrivKey(keyid)) {
+            if (!model->IsSpendable(dest)) {
                 ui->labelCoinControlChangeLabel->setText(
                     tr("Warning: Unknown change address"));
 
@@ -856,7 +855,7 @@ void SendCoinsDialog::coinControlChangeEdited(const QString &text) {
                     QMessageBox::Cancel);
 
                 if (btnRetVal == QMessageBox::Yes)
-                    CoinControlDialog::coinControl->destChange = addr.Get();
+                    CoinControlDialog::coinControl->destChange = dest;
                 else {
                     ui->lineEditCoinControlChange->setText("");
                     ui->labelCoinControlChangeLabel->setStyleSheet(
@@ -876,7 +875,7 @@ void SendCoinsDialog::coinControlChangeEdited(const QString &text) {
                 else
                     ui->labelCoinControlChangeLabel->setText(tr("(no label)"));
 
-                CoinControlDialog::coinControl->destChange = addr.Get();
+                CoinControlDialog::coinControl->destChange = dest;
             }
         }
     }
