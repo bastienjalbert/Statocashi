@@ -11,6 +11,7 @@
 #include "init.h"
 #include "net.h"
 #include "netbase.h"
+#include "rpc/blockchain.h"
 #include "rpc/server.h"
 #include "timedata.h"
 #include "util.h"
@@ -21,13 +22,9 @@
 #include "wallet/walletdb.h"
 #endif
 
-#include <cstdint>
-
-#include <boost/assign/list_of.hpp>
-
 #include <univalue.h>
 
-using namespace std;
+#include <cstdint>
 
 /**
  * @note Do not add or change anything in the information returned by this
@@ -44,7 +41,7 @@ using namespace std;
  **/
 static UniValue getinfo(const Config &config, const JSONRPCRequest &request) {
     if (request.fHelp || request.params.size() != 0)
-        throw runtime_error(
+        throw std::runtime_error(
             "getinfo\n"
             "\nDEPRECATED. Returns an object containing various state info.\n"
             "\nResult:\n"
@@ -108,9 +105,9 @@ static UniValue getinfo(const Config &config, const JSONRPCRequest &request) {
     if (g_connman)
         obj.push_back(Pair("connections", (int)g_connman->GetNodeCount(
                                               CConnman::CONNECTIONS_ALL)));
-    obj.push_back(Pair(
-        "proxy", (proxy.IsValid() ? proxy.proxy.ToStringIPPort() : string())));
-    obj.push_back(Pair("difficulty", (double)GetDifficulty()));
+    obj.push_back(Pair("proxy", (proxy.IsValid() ? proxy.proxy.ToStringIPPort()
+                                                 : std::string())));
+    obj.push_back(Pair("difficulty", double(GetDifficulty(chainActive.Tip()))));
     obj.push_back(Pair("testnet", Params().NetworkIDString() ==
                                       CBaseChainParams::TESTNET));
 #ifdef ENABLE_WALLET
@@ -161,7 +158,7 @@ public:
                 Pair("hex", HexStr(subscript.begin(), subscript.end())));
             UniValue a(UniValue::VARR);
             for (const CTxDestination &addr : addresses) {
-                a.push_back(CBitcoinAddress(addr).ToString());
+                a.push_back(EncodeDestination(addr));
             }
             obj.push_back(Pair("addresses", a));
             if (whichType == TX_MULTISIG)
@@ -175,7 +172,7 @@ public:
 static UniValue validateaddress(const Config &config,
                                 const JSONRPCRequest &request) {
     if (request.fHelp || request.params.size() != 1)
-        throw runtime_error(
+        throw std::runtime_error(
             "validateaddress \"address\"\n"
             "\nReturn information about the given bitcoin address.\n"
             "\nArguments:\n"
@@ -221,14 +218,13 @@ static UniValue validateaddress(const Config &config,
     LOCK(cs_main);
 #endif
 
-    CBitcoinAddress address(request.params[0].get_str());
-    bool isValid = address.IsValid();
+    CTxDestination dest = DecodeDestination(request.params[0].get_str());
+    bool isValid = IsValidDestination(dest);
 
     UniValue ret(UniValue::VOBJ);
     ret.push_back(Pair("isvalid", isValid));
     if (isValid) {
-        CTxDestination dest = address.Get();
-        string currentAddress = address.ToString();
+        std::string currentAddress = EncodeDestination(dest);
         ret.push_back(Pair("address", currentAddress));
 
         CScript scriptPubKey = GetScriptForDestination(dest);
@@ -242,13 +238,14 @@ static UniValue validateaddress(const Config &config,
             Pair("iswatchonly", (mine & ISMINE_WATCH_ONLY) ? true : false));
         UniValue detail = boost::apply_visitor(DescribeAddressVisitor(), dest);
         ret.pushKVs(detail);
-        if (pwalletMain && pwalletMain->mapAddressBook.count(dest))
+        if (pwalletMain && pwalletMain->mapAddressBook.count(dest)) {
             ret.push_back(
                 Pair("account", pwalletMain->mapAddressBook[dest].name));
-        CKeyID keyID;
+        }
         if (pwalletMain) {
             const auto &meta = pwalletMain->mapKeyMetadata;
-            auto it = address.GetKeyID(keyID) ? meta.find(keyID) : meta.end();
+            const CKeyID *keyID = boost::get<CKeyID>(&dest);
+            auto it = keyID ? meta.find(*keyID) : meta.end();
             if (it == meta.end()) {
                 it = meta.find(CScriptID(scriptPubKey));
             }
@@ -275,35 +272,38 @@ CScript createmultisig_redeemScript(const UniValue &params) {
 
     // Gather public keys
     if (nRequired < 1)
-        throw runtime_error(
+        throw std::runtime_error(
             "a multisignature address must require at least one key to redeem");
     if ((int)keys.size() < nRequired)
-        throw runtime_error(
+        throw std::runtime_error(
             strprintf("not enough keys supplied "
                       "(got %u keys, but need at least %d to redeem)",
                       keys.size(), nRequired));
     if (keys.size() > 16)
-        throw runtime_error("Number of addresses involved in the "
-                            "multisignature address creation > 16\nReduce the "
-                            "number");
+        throw std::runtime_error(
+            "Number of addresses involved in the "
+            "multisignature address creation > 16\nReduce the "
+            "number");
     std::vector<CPubKey> pubkeys;
     pubkeys.resize(keys.size());
     for (unsigned int i = 0; i < keys.size(); i++) {
         const std::string &ks = keys[i].get_str();
 #ifdef ENABLE_WALLET
         // Case 1: Bitcoin address and we have full public key:
-        CBitcoinAddress address(ks);
-        if (pwalletMain && address.IsValid()) {
-            CKeyID keyID;
-            if (!address.GetKeyID(keyID))
-                throw runtime_error(
+        CTxDestination dest = DecodeDestination(ks);
+        if (pwalletMain && IsValidDestination(dest)) {
+            const CKeyID *keyID = boost::get<CKeyID>(&dest);
+            if (!keyID) {
+                throw std::runtime_error(
                     strprintf("%s does not refer to a key", ks));
+            }
             CPubKey vchPubKey;
-            if (!pwalletMain->GetPubKey(keyID, vchPubKey))
-                throw runtime_error(
+            if (!pwalletMain->GetPubKey(*keyID, vchPubKey)) {
+                throw std::runtime_error(
                     strprintf("no full public key for address %s", ks));
+            }
             if (!vchPubKey.IsFullyValid())
-                throw runtime_error(" Invalid public key: " + ks);
+                throw std::runtime_error(" Invalid public key: " + ks);
             pubkeys[i] = vchPubKey;
         }
 
@@ -313,16 +313,16 @@ CScript createmultisig_redeemScript(const UniValue &params) {
             if (IsHex(ks)) {
             CPubKey vchPubKey(ParseHex(ks));
             if (!vchPubKey.IsFullyValid())
-                throw runtime_error(" Invalid public key: " + ks);
+                throw std::runtime_error(" Invalid public key: " + ks);
             pubkeys[i] = vchPubKey;
         } else {
-            throw runtime_error(" Invalid public key: " + ks);
+            throw std::runtime_error(" Invalid public key: " + ks);
         }
     }
     CScript result = GetScriptForMultisig(nRequired, pubkeys);
 
     if (result.size() > MAX_SCRIPT_ELEMENT_SIZE)
-        throw runtime_error(
+        throw std::runtime_error(
             strprintf("redeemScript exceeds size limit: %d > %d", result.size(),
                       MAX_SCRIPT_ELEMENT_SIZE));
 
@@ -333,7 +333,7 @@ static UniValue createmultisig(const Config &config,
                                const JSONRPCRequest &request) {
     if (request.fHelp || request.params.size() < 2 ||
         request.params.size() > 2) {
-        string msg =
+        std::string msg =
             "createmultisig nrequired [\"key\",...]\n"
             "\nCreates a multi-signature address with n signature of m keys "
             "required.\n"
@@ -369,16 +369,15 @@ static UniValue createmultisig(const Config &config,
                            "2, "
                            "\"[\\\"16sSauSf5pF2UkUwvKGq4qjNRzBZYqgEL5\\\","
                            "\\\"171sgjn4YtPu27adkKGrdDwzRTxnRkBfKV\\\"]\"");
-        throw runtime_error(msg);
+        throw std::runtime_error(msg);
     }
 
     // Construct using pay-to-script-hash:
     CScript inner = createmultisig_redeemScript(request.params);
     CScriptID innerID(inner);
-    CBitcoinAddress address(innerID);
 
     UniValue result(UniValue::VOBJ);
-    result.push_back(Pair("address", address.ToString()));
+    result.push_back(Pair("address", EncodeDestination(innerID)));
     result.push_back(Pair("redeemScript", HexStr(inner.begin(), inner.end())));
 
     return result;
@@ -387,7 +386,7 @@ static UniValue createmultisig(const Config &config,
 static UniValue verifymessage(const Config &config,
                               const JSONRPCRequest &request) {
     if (request.fHelp || request.params.size() != 3)
-        throw runtime_error(
+        throw std::runtime_error(
             "verifymessage \"address\" \"signature\" \"message\"\n"
             "\nVerify a signed message\n"
             "\nArguments:\n"
@@ -417,19 +416,22 @@ static UniValue verifymessage(const Config &config,
 
     LOCK(cs_main);
 
-    string strAddress = request.params[0].get_str();
-    string strSign = request.params[1].get_str();
-    string strMessage = request.params[2].get_str();
+    std::string strAddress = request.params[0].get_str();
+    std::string strSign = request.params[1].get_str();
+    std::string strMessage = request.params[2].get_str();
 
-    CBitcoinAddress addr(strAddress);
-    if (!addr.IsValid()) throw JSONRPCError(RPC_TYPE_ERROR, "Invalid address");
+    CTxDestination destination = DecodeDestination(strAddress);
+    if (!IsValidDestination(destination)) {
+        throw JSONRPCError(RPC_TYPE_ERROR, "Invalid address");
+    }
 
-    CKeyID keyID;
-    if (!addr.GetKeyID(keyID))
+    const CKeyID *keyID = boost::get<CKeyID>(&destination);
+    if (!keyID) {
         throw JSONRPCError(RPC_TYPE_ERROR, "Address does not refer to key");
+    }
 
     bool fInvalid = false;
-    vector<unsigned char> vchSig = DecodeBase64(strSign.c_str(), &fInvalid);
+    std::vector<uint8_t> vchSig = DecodeBase64(strSign.c_str(), &fInvalid);
 
     if (fInvalid)
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
@@ -442,13 +444,13 @@ static UniValue verifymessage(const Config &config,
     CPubKey pubkey;
     if (!pubkey.RecoverCompact(ss.GetHash(), vchSig)) return false;
 
-    return (pubkey.GetID() == keyID);
+    return (pubkey.GetID() == *keyID);
 }
 
 static UniValue signmessagewithprivkey(const Config &config,
                                        const JSONRPCRequest &request) {
     if (request.fHelp || request.params.size() != 2)
-        throw runtime_error(
+        throw std::runtime_error(
             "signmessagewithprivkey \"privkey\" \"message\"\n"
             "\nSign a message with the private key of an address\n"
             "\nArguments:\n"
@@ -470,8 +472,8 @@ static UniValue signmessagewithprivkey(const Config &config,
             "\nAs json rpc\n" + HelpExampleRpc("signmessagewithprivkey",
                                                "\"privkey\", \"my message\""));
 
-    string strPrivkey = request.params[0].get_str();
-    string strMessage = request.params[1].get_str();
+    std::string strPrivkey = request.params[0].get_str();
+    std::string strMessage = request.params[1].get_str();
 
     CBitcoinSecret vchSecret;
     bool fGood = vchSecret.SetString(strPrivkey);
@@ -486,7 +488,7 @@ static UniValue signmessagewithprivkey(const Config &config,
     ss << strMessageMagic;
     ss << strMessage;
 
-    vector<unsigned char> vchSig;
+    std::vector<uint8_t> vchSig;
     if (!key.SignCompact(ss.GetHash(), vchSig))
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sign failed");
 
@@ -496,7 +498,7 @@ static UniValue signmessagewithprivkey(const Config &config,
 static UniValue setmocktime(const Config &config,
                             const JSONRPCRequest &request) {
     if (request.fHelp || request.params.size() != 1)
-        throw runtime_error(
+        throw std::runtime_error(
             "setmocktime timestamp\n"
             "\nSet the local time to given timestamp (-regtest only)\n"
             "\nArguments:\n"
@@ -505,7 +507,7 @@ static UniValue setmocktime(const Config &config,
             "   Pass 0 to go back to using the system time.");
 
     if (!Params().MineBlocksOnDemand())
-        throw runtime_error(
+        throw std::runtime_error(
             "setmocktime for regression testing (-regtest mode) only");
 
     // For now, don't change mocktime if we're in the middle of validation, as
@@ -515,7 +517,7 @@ static UniValue setmocktime(const Config &config,
     // ensure all callsites of GetTime() are accessing this safely.
     LOCK(cs_main);
 
-    RPCTypeCheck(request.params, boost::assign::list_of(UniValue::VNUM));
+    RPCTypeCheck(request.params, {UniValue::VNUM});
     SetMockTime(request.params[0].get_int64());
 
     return NullUniValue;
@@ -539,7 +541,7 @@ static UniValue getmemoryinfo(const Config &config,
      * as users will undoubtedly confuse it with the other "memory pool"
      */
     if (request.fHelp || request.params.size() != 0)
-        throw runtime_error(
+        throw std::runtime_error(
             "getmemoryinfo\n"
             "Returns an object containing information about memory usage.\n"
             "\nResult:\n"
@@ -569,7 +571,7 @@ static UniValue getmemoryinfo(const Config &config,
 
 static UniValue echo(const Config &config, const JSONRPCRequest &request) {
     if (request.fHelp)
-        throw runtime_error(
+        throw std::runtime_error(
             "echo|echojson \"message\" ...\n"
             "\nSimply echo back the input arguments. This command is for "
             "testing.\n"

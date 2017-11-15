@@ -18,8 +18,6 @@
 #include <map>
 #include <string>
 
-#include <boost/function.hpp>
-
 #include <univalue.h>
 
 static const unsigned int DEFAULT_RPC_SERIALIZE_VERSION = 1;
@@ -29,11 +27,11 @@ extern statsd::StatsdClient statsClient;
 class CRPCCommand;
 
 namespace RPCServer {
-void OnStarted(boost::function<void()> slot);
-void OnStopped(boost::function<void()> slot);
-void OnPreCommand(boost::function<void(const CRPCCommand &)> slot);
-void OnPostCommand(boost::function<void(const CRPCCommand &)> slot);
-}
+void OnStarted(std::function<void()> slot);
+void OnStopped(std::function<void()> slot);
+void OnPreCommand(std::function<void(const CRPCCommand &)> slot);
+void OnPostCommand(std::function<void(const CRPCCommand &)> slot);
+} // namespace RPCServer
 
 class CBlockIndex;
 class Config;
@@ -127,7 +125,7 @@ public:
      * but only GUI RPC console, and to break the dependency of pcserver on
      * httprpc.
      */
-    virtual RPCTimerBase *NewTimer(boost::function<void(void)> &func,
+    virtual RPCTimerBase *NewTimer(std::function<void(void)> &func,
                                    int64_t millis) = 0;
 };
 
@@ -142,7 +140,7 @@ void RPCUnsetTimerInterface(RPCTimerInterface *iface);
  * Run func nSeconds from now.
  * Overrides previous timer <name> (if any).
  */
-void RPCRunLater(const std::string &name, boost::function<void(void)> func,
+void RPCRunLater(const std::string &name, std::function<void(void)> func,
                  int64_t nSeconds);
 
 typedef UniValue (*rpcfn_type)(Config &config,
@@ -197,9 +195,9 @@ public:
     UniValue execute(Config &config, const JSONRPCRequest &request) const;
 
     /**
-    * Returns a list of registered commands
-    * @returns List of registered commands.
-    */
+     * Returns a list of registered commands
+     * @returns List of registered commands.
+     */
     std::vector<std::string> listCommands() const;
 
     /**
@@ -219,15 +217,12 @@ extern CRPCTable tableRPC;
  */
 extern uint256 ParseHashV(const UniValue &v, std::string strName);
 extern uint256 ParseHashO(const UniValue &o, std::string strKey);
-extern std::vector<unsigned char> ParseHexV(const UniValue &v,
-                                            std::string strName);
-extern std::vector<unsigned char> ParseHexO(const UniValue &o,
-                                            std::string strKey);
+extern std::vector<uint8_t> ParseHexV(const UniValue &v, std::string strName);
+extern std::vector<uint8_t> ParseHexO(const UniValue &o, std::string strKey);
 
 extern int64_t nWalletUnlockTime;
-extern CAmount AmountFromValue(const UniValue &value);
-extern UniValue ValueFromAmount(const CAmount &amount);
-extern double GetDifficulty(const CBlockIndex *blockindex = nullptr);
+extern Amount AmountFromValue(const UniValue &value);
+extern UniValue ValueFromAmount(const Amount &amount);
 extern std::string HelpRequiringPassphrase();
 extern std::string HelpExampleCli(const std::string &methodname,
                                   const std::string &args);

@@ -44,31 +44,31 @@ extern void TxToJSON(const CTransaction &tx, const uint256 hashBlock,
 void ScriptPubKeyToJSON(const CScript &scriptPubKey, UniValue &out,
                         bool fIncludeHex);
 
-double GetDifficulty(const CBlockIndex *blockindex) {
-    // Floating point number that is a multiple of the minimum difficulty,
-    // minimum difficulty = 1.0.
-    if (blockindex == nullptr) {
-        if (chainActive.Tip() == nullptr) {
-            return 1.0;
-        }
-
-        blockindex = chainActive.Tip();
-    }
-
-    int nShift = (blockindex->nBits >> 24) & 0xff;
-
-    double dDiff = double(0x0000ffff) / double(blockindex->nBits & 0x00ffffff);
+static double GetDifficultyFromBits(uint32_t nBits) {
+    int nShift = (nBits >> 24) & 0xff;
+    double dDiff = 0x0000ffff / double(nBits & 0x00ffffff);
 
     while (nShift < 29) {
         dDiff *= 256.0;
         nShift++;
     }
+
     while (nShift > 29) {
         dDiff /= 256.0;
         nShift--;
     }
 
     return dDiff;
+}
+
+double GetDifficulty(const CBlockIndex *blockindex) {
+    // Floating point number that is a multiple of the minimum difficulty,
+    // minimum difficulty = 1.0.
+    if (blockindex == nullptr) {
+        return 1.0;
+    }
+
+    return GetDifficultyFromBits(blockindex->nBits);
 }
 
 UniValue blockheaderToJSON(const CBlockIndex *blockindex) {
@@ -365,7 +365,7 @@ UniValue getdifficulty(const Config &config, const JSONRPCRequest &request) {
     }
 
     LOCK(cs_main);
-    return GetDifficulty();
+    return GetDifficulty(chainActive.Tip());
 }
 
 std::string EntryDescriptionString() {
@@ -414,10 +414,12 @@ void entryToJSON(UniValue &info, const CTxMemPoolEntry &e) {
         Pair("currentpriority", e.GetPriority(chainActive.Height())));
     info.push_back(Pair("descendantcount", e.GetCountWithDescendants()));
     info.push_back(Pair("descendantsize", e.GetSizeWithDescendants()));
-    info.push_back(Pair("descendantfees", e.GetModFeesWithDescendants()));
+    info.push_back(
+        Pair("descendantfees", e.GetModFeesWithDescendants().GetSatoshis()));
     info.push_back(Pair("ancestorcount", e.GetCountWithAncestors()));
     info.push_back(Pair("ancestorsize", e.GetSizeWithAncestors()));
-    info.push_back(Pair("ancestorfees", e.GetModFeesWithAncestors()));
+    info.push_back(
+        Pair("ancestorfees", e.GetModFeesWithAncestors().GetSatoshis()));
     const CTransaction &tx = e.GetTx();
     std::set<std::string> setDepends;
     for (const CTxIn &txin : tx.vin) {
@@ -830,12 +832,15 @@ UniValue getblock(const Config &config, const JSONRPCRequest &request) {
 
     if (fHavePruned && !(pblockindex->nStatus & BLOCK_HAVE_DATA) &&
         pblockindex->nTx > 0) {
-        throw JSONRPCError(RPC_INTERNAL_ERROR,
-                           "Block not available (pruned data)");
+        throw JSONRPCError(RPC_MISC_ERROR, "Block not available (pruned data)");
     }
 
     if (!ReadBlockFromDisk(block, pblockindex, Params().GetConsensus())) {
-        throw JSONRPCError(RPC_INTERNAL_ERROR, "Can't read block from disk");
+        // Block not found on disk. This could be because we have the block
+        // header in our index but don't have the block (for example if a
+        // non-whitelisted node sends us an unrequested long chain of valid
+        // blocks, we add the headers to our index, but don't accept the block).
+        throw JSONRPCError(RPC_MISC_ERROR, "Block not found on disk");
     }
 
     if (!fVerbose) {
@@ -854,14 +859,36 @@ struct CCoinsStats {
     uint256 hashBlock;
     uint64_t nTransactions;
     uint64_t nTransactionOutputs;
-    uint64_t nSerializedSize;
+    uint64_t nBogoSize;
     uint256 hashSerialized;
+    uint64_t nDiskSize;
     CAmount nTotalAmount;
 
     CCoinsStats()
-        : nHeight(0), nTransactions(0), nTransactionOutputs(0),
-          nSerializedSize(0), nTotalAmount(0) {}
+        : nHeight(0), nTransactions(0), nTransactionOutputs(0), nBogoSize(0),
+          nDiskSize(0), nTotalAmount(0) {}
 };
+
+static void ApplyStats(CCoinsStats &stats, CHashWriter &ss, const uint256 &hash,
+                       const std::map<uint32_t, Coin> &outputs) {
+    assert(!outputs.empty());
+    ss << hash;
+    ss << VARINT(outputs.begin()->second.GetHeight() * 2 +
+                 outputs.begin()->second.IsCoinBase());
+    stats.nTransactions++;
+    for (const auto output : outputs) {
+        ss << VARINT(output.first + 1);
+        ss << *(const CScriptBase *)(&output.second.GetTxOut().scriptPubKey);
+        ss << VARINT(output.second.GetTxOut().nValue.GetSatoshis());
+        stats.nTransactionOutputs++;
+        stats.nTotalAmount += output.second.GetTxOut().nValue.GetSatoshis();
+        stats.nBogoSize +=
+            32 /* txid */ + 4 /* vout index */ + 4 /* height + coinbase */ +
+            8 /* amount */ + 2 /* scriptPubKey len */ +
+            output.second.GetTxOut().scriptPubKey.size() /* scriptPubKey */;
+    }
+    ss << VARINT(0);
+}
 
 //! Calculate statistics about the unspent transaction output set
 static bool GetUTXOStats(CCoinsView *view, CCoinsStats &stats) {
@@ -874,32 +901,29 @@ static bool GetUTXOStats(CCoinsView *view, CCoinsStats &stats) {
         stats.nHeight = mapBlockIndex.find(stats.hashBlock)->second->nHeight;
     }
     ss << stats.hashBlock;
-    CAmount nTotalAmount = 0;
+    uint256 prevkey;
+    std::map<uint32_t, Coin> outputs;
     while (pcursor->Valid()) {
         boost::this_thread::interruption_point();
-        uint256 key;
-        CCoins coins;
-        if (pcursor->GetKey(key) && pcursor->GetValue(coins)) {
-            stats.nTransactions++;
-            ss << key;
-            for (size_t i = 0; i < coins.vout.size(); i++) {
-                const CTxOut &out = coins.vout[i];
-                if (!out.IsNull()) {
-                    stats.nTransactionOutputs++;
-                    ss << VARINT(i + 1);
-                    ss << out;
-                    nTotalAmount += out.nValue;
-                }
+        COutPoint key;
+        Coin coin;
+        if (pcursor->GetKey(key) && pcursor->GetValue(coin)) {
+            if (!outputs.empty() && key.hash != prevkey) {
+                ApplyStats(stats, ss, prevkey, outputs);
+                outputs.clear();
             }
-            stats.nSerializedSize += 32 + pcursor->GetValueSize();
-            ss << VARINT(0);
+            prevkey = key.hash;
+            outputs[key.n] = std::move(coin);
         } else {
             return error("%s: unable to read value", __func__);
         }
         pcursor->Next();
     }
+    if (!outputs.empty()) {
+        ApplyStats(stats, ss, prevkey, outputs);
+    }
     stats.hashSerialized = ss.GetHash();
-    stats.nTotalAmount = nTotalAmount;
+    stats.nDiskSize = view->EstimateSize();
     return true;
 }
 
@@ -921,7 +945,7 @@ UniValue pruneblockchain(const Config &config, const JSONRPCRequest &request) {
 
     if (!fPruneMode) {
         throw JSONRPCError(
-            RPC_METHOD_NOT_FOUND,
+            RPC_MISC_ERROR,
             "Cannot prune blocks because node is not in prune mode.");
     }
 
@@ -941,7 +965,7 @@ UniValue pruneblockchain(const Config &config, const JSONRPCRequest &request) {
             chainActive.FindEarliestAtLeast(heightParam - 7200);
         if (!pindex) {
             throw JSONRPCError(
-                RPC_INTERNAL_ERROR,
+                RPC_INVALID_PARAMETER,
                 "Could not find block with at least the specified timestamp.");
         }
         heightParam = pindex->nHeight;
@@ -950,7 +974,7 @@ UniValue pruneblockchain(const Config &config, const JSONRPCRequest &request) {
     unsigned int height = (unsigned int)heightParam;
     unsigned int chainHeight = (unsigned int)chainActive.Height();
     if (chainHeight < Params().PruneAfterHeight()) {
-        throw JSONRPCError(RPC_INTERNAL_ERROR,
+        throw JSONRPCError(RPC_MISC_ERROR,
                            "Blockchain is too short for pruning.");
     } else if (height > chainHeight) {
         throw JSONRPCError(
@@ -979,8 +1003,11 @@ UniValue gettxoutsetinfo(const Config &config, const JSONRPCRequest &request) {
             "  \"transactions\": n,      (numeric) The number of transactions\n"
             "  \"txouts\": n,            (numeric) The number of output "
             "transactions\n"
-            "  \"bytes_serialized\": n,  (numeric) The serialized size\n"
+            "  \"bogosize\": n,          (numeric) A database-independent "
+            "metric for UTXO set size\n"
             "  \"hash_serialized\": \"hash\",   (string) The serialized hash\n"
+            "  \"disk_size\": n,         (numeric) The estimated size of the "
+            "chainstate on disk\n"
             "  \"total_amount\": x.xxx          (numeric) The total amount\n"
             "}\n"
             "\nExamples:\n" +
@@ -997,8 +1024,9 @@ UniValue gettxoutsetinfo(const Config &config, const JSONRPCRequest &request) {
         ret.push_back(Pair("bestblock", stats.hashBlock.GetHex()));
         ret.push_back(Pair("transactions", int64_t(stats.nTransactions)));
         ret.push_back(Pair("txouts", int64_t(stats.nTransactionOutputs)));
-        ret.push_back(Pair("bytes_serialized", int64_t(stats.nSerializedSize)));
+        ret.push_back(Pair("bogosize", int64_t(stats.nBogoSize)));
         ret.push_back(Pair("hash_serialized", stats.hashSerialized.GetHex()));
+        ret.push_back(Pair("disk_size", stats.nDiskSize));
         ret.push_back(
             Pair("total_amount", ValueFromAmount(stats.nTotalAmount)));
         
@@ -1046,7 +1074,6 @@ UniValue gettxout(const Config &config, const JSONRPCRequest &request) {
             "        ,...\n"
             "     ]\n"
             "  },\n"
-            "  \"version\" : n,            (numeric) The version\n"
             "  \"coinbase\" : true|false   (boolean) Coinbase or not\n"
             "}\n"
 
@@ -1286,7 +1313,7 @@ UniValue getblockchaininfo(const Config &config,
         Pair("headers", pindexBestHeader ? pindexBestHeader->nHeight : -1));
     obj.push_back(
         Pair("bestblockhash", chainActive.Tip()->GetBlockHash().GetHex()));
-    obj.push_back(Pair("difficulty", double(GetDifficulty())));
+    obj.push_back(Pair("difficulty", double(GetDifficulty(chainActive.Tip()))));
     obj.push_back(
         Pair("mediantime", int64_t(chainActive.Tip()->GetMedianTimePast())));
     obj.push_back(

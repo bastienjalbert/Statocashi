@@ -27,8 +27,7 @@ public:
     virtual const BaseSignatureChecker &Checker() const = 0;
 
     /** Create a singular (non-script) signature. */
-    virtual bool CreateSig(std::vector<unsigned char> &vchSig,
-                           const CKeyID &keyid,
+    virtual bool CreateSig(std::vector<uint8_t> &vchSig, const CKeyID &keyid,
                            const CScript &scriptCode) const = 0;
 };
 
@@ -36,17 +35,17 @@ public:
 class TransactionSignatureCreator : public BaseSignatureCreator {
     const CTransaction *txTo;
     unsigned int nIn;
-    CAmount amount;
+    Amount amount;
     uint32_t nHashType;
     const TransactionSignatureChecker checker;
 
 public:
     TransactionSignatureCreator(const CKeyStore *keystoreIn,
                                 const CTransaction *txToIn, unsigned int nInIn,
-                                const CAmount &amountIn,
+                                const Amount amountIn,
                                 uint32_t nHashTypeIn = SIGHASH_ALL);
     const BaseSignatureChecker &Checker() const { return checker; }
-    bool CreateSig(std::vector<unsigned char> &vchSig, const CKeyID &keyid,
+    bool CreateSig(std::vector<uint8_t> &vchSig, const CKeyID &keyid,
                    const CScript &scriptCode) const;
 };
 
@@ -56,8 +55,7 @@ class MutableTransactionSignatureCreator : public TransactionSignatureCreator {
 public:
     MutableTransactionSignatureCreator(const CKeyStore *keystoreIn,
                                        const CMutableTransaction *txToIn,
-                                       unsigned int nInIn,
-                                       const CAmount &amount,
+                                       unsigned int nInIn, const Amount amount,
                                        uint32_t nHashTypeIn)
         : TransactionSignatureCreator(keystoreIn, &tx, nInIn, amount,
                                       nHashTypeIn),
@@ -70,7 +68,7 @@ public:
     DummySignatureCreator(const CKeyStore *keystoreIn)
         : BaseSignatureCreator(keystoreIn) {}
     const BaseSignatureChecker &Checker() const;
-    bool CreateSig(std::vector<unsigned char> &vchSig, const CKeyID &keyid,
+    bool CreateSig(std::vector<uint8_t> &vchSig, const CKeyID &keyid,
                    const CScript &scriptCode) const;
 };
 
@@ -88,7 +86,7 @@ bool ProduceSignature(const BaseSignatureCreator &creator,
 /** Produce a script signature for a transaction. */
 bool SignSignature(const CKeyStore &keystore, const CScript &fromPubKey,
                    CMutableTransaction &txTo, unsigned int nIn,
-                   const CAmount &amount, uint32_t nHashType);
+                   const Amount amount, uint32_t nHashType);
 bool SignSignature(const CKeyStore &keystore, const CTransaction &txFrom,
                    CMutableTransaction &txTo, unsigned int nIn,
                    uint32_t nHashType);

@@ -43,7 +43,7 @@ bool CScriptCompressor::IsToPubKey(CPubKey &pubkey) const {
     return false;
 }
 
-bool CScriptCompressor::Compress(std::vector<unsigned char> &out) const {
+bool CScriptCompressor::Compress(std::vector<uint8_t> &out) const {
     CKeyID keyID;
     if (IsToKeyID(keyID)) {
         out.resize(21);
@@ -84,7 +84,7 @@ unsigned int CScriptCompressor::GetSpecialSize(unsigned int nSize) const {
 }
 
 bool CScriptCompressor::Decompress(unsigned int nSize,
-                                   const std::vector<unsigned char> &in) {
+                                   const std::vector<uint8_t> &in) {
     switch (nSize) {
         case 0x00:
             script.resize(25);
@@ -112,7 +112,7 @@ bool CScriptCompressor::Decompress(unsigned int nSize,
             return true;
         case 0x04:
         case 0x05:
-            unsigned char vch[33] = {};
+            uint8_t vch[33] = {};
             vch[0] = nSize - 2;
             memcpy(&vch[1], &in[0], 32);
             CPubKey pubkey(&vch[0], &vch[33]);
@@ -139,7 +139,8 @@ bool CScriptCompressor::Decompress(unsigned int nSize,
 // - 1) + 9
 // (this is decodable, as d is in [1-9] and e is in [0-9])
 
-uint64_t CTxOutCompressor::CompressAmount(uint64_t n) {
+uint64_t CTxOutCompressor::CompressAmount(Amount amt) {
+    uint64_t n = amt.GetSatoshis();
     if (n == 0) {
         return 0;
     }
@@ -158,7 +159,7 @@ uint64_t CTxOutCompressor::CompressAmount(uint64_t n) {
     }
 }
 
-uint64_t CTxOutCompressor::DecompressAmount(uint64_t x) {
+Amount CTxOutCompressor::DecompressAmount(uint64_t x) {
     // x = 0  OR  x = 1+10*(9*n + d - 1) + e  OR  x = 1+10*(n - 1) + 9
     if (x == 0) {
         return 0;
@@ -181,5 +182,5 @@ uint64_t CTxOutCompressor::DecompressAmount(uint64_t x) {
         n *= 10;
         e--;
     }
-    return n;
+    return Amount(int64_t(n));
 }

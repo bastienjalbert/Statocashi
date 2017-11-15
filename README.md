@@ -181,6 +181,3 @@ Valuable links :
 ----------------
 
 http://docs.grafana.org/installation/configuration Some information about grafana configuration
-
-
-

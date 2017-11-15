@@ -111,7 +111,7 @@ static void RandomTransaction(CMutableTransaction &tx, bool fSingle) {
     for (int out = 0; out < outs; out++) {
         tx.vout.push_back(CTxOut());
         CTxOut &txout = tx.vout.back();
-        txout.nValue = insecure_rand() % 100000000;
+        txout.nValue = Amount(int64_t(insecure_rand()) % 100000000);
         RandomScript(txout.scriptPubKey);
     }
 }
@@ -205,7 +205,7 @@ BOOST_AUTO_TEST_CASE(sighash_from_data) {
             BOOST_CHECK_MESSAGE(CheckRegularTransaction(*tx, state), strTest);
             BOOST_CHECK(state.IsValid());
 
-            std::vector<unsigned char> raw = ParseHex(raw_script);
+            std::vector<uint8_t> raw = ParseHex(raw_script);
             scriptCode.insert(scriptCode.end(), raw.begin(), raw.end());
         } catch (...) {
             BOOST_ERROR("Bad test, couldn't deserialize data: " << strTest);
