@@ -1001,9 +1001,9 @@ static bool AcceptToMemoryPoolWorker(
         pool.addUnchecked(txid, entry, setAncestors, validForFeeEstimation);
         
         statsClient.count("transactions.sizeBytes", nSize, 1.0f);
-        statsClient.count("transactions.fees", nFees, 1.0f);
-        statsClient.count("transactions.inputValue", nValueIn, 1.0f);
-        statsClient.count("transactions.outputValue", nValueOut, 1.0f);
+        statsClient.count("transactions.fees", (double)nFees.GetSatoshis(), 1.0f);
+        statsClient.count("transactions.inputValue", (double)nValueIn.GetSatoshis(), 1.0f);
+        statsClient.count("transactions.outputValue", (double)nValueOut.GetSatoshis(), 1.0f);
         statsClient.count("transactions.sigOps", nSigOpsCount, 1.0f);
         statsClient.count("transactions.priority", dPriority, 1.0f);
         
@@ -1032,7 +1032,7 @@ static bool AcceptToMemoryPoolWorker(
     statsClient.gauge("transactions.mempool.totalTransactions", pool.size(), 0.1f);
     statsClient.gauge("transactions.mempool.totalTxBytes", (int64_t) pool.GetTotalTxSize(), 0.1f);
     statsClient.gauge("transactions.mempool.memoryUsageBytes", (int64_t) pool.DynamicMemoryUsage(), 0.1f);
-    statsClient.gauge("transactions.mempool.minFeePerKb", pool.GetMinFee(GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000).GetFeePerK(), 0.1f);
+    statsClient.gauge("transactions.mempool.minFeePerKb", (double)pool.GetMinFee(GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000).GetFeePerK().GetSatoshis(), 0.1f);
     
     
     return true;

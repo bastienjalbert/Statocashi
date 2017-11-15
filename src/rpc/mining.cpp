@@ -297,7 +297,7 @@ static UniValue getmininginfo(const Config &config,
     obj.push_back(Pair("chain", Params().NetworkIDString()));
     
     statsClient.gauge("network.hashesPerSecond", getnetworkhashps(config, request).get_real());
-    statsClient.gauge("network.difficulty", (double)GetDifficulty());
+    statsClient.gauge("network.difficulty", (double)GetDifficulty(chainActive.Tip()));
     
     return obj;
 }

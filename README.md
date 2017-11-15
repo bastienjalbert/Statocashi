@@ -5,23 +5,22 @@ What is Statocashi ?
 ----------------
 
 Statocashi is a fork of JLOPP Statoshi (http://statoshi.info) adapted to work with
-bitcoin cash. It use bitcoin abc core and most added code from statoshi.
+bitcoin cash. It uses Bitcoin ABC node.
 
-https://github.com/jlopp/statoshi + https://github.com/Bitcoin-ABC/bitcoin-abc = Statocashi
+Statocashi = https://github.com/jlopp/statoshi + https://github.com/Bitcoin-ABC/bitcoin-abc
 
 Version
 -------
+15 November 2017 : Upgrade Statocashi to Bitcoin ABC v0.16 (DAA hard-fork version)
+
+19 August 2017 : Fix the mining chart issue (configuration problem). New features added like prices.
+
 16 August 2017 : First fork from Bitcoin ABC and Statoshi functions implementation.
 
-19 August 2017 : Fix the mining chart issue (configuration problem). New features (like price) will be added soon, they are already available on the preview website.
-                   
-
-TODO : Need to fix 
-- Recommanded Transaction Fee for Target Confirmation in X Blocks  
 
 Preview 
 -------
-[https://statocashi.info/] : demonstration website.  
+[https://statocashi.info/]
 
 
 How to install ?
@@ -33,19 +32,29 @@ Statocashi node -> statsd -> graphite <- grafana (web interface)
 Legend : <-/-> = dataflux
 
 ### Dependencies :
-> **Node.js:** Download node [http://nodejs.org/download/] and install node.js, on ubuntu just run ``` root@bash: sudo apt-get install nodejs npm ```.
+> **Node.js:** Download node [http://nodejs.org/download/] and install node.js, on ubuntu just run 
 
-> **Forever:** just run ``` root@bash: sudo npm install forever ```.
+> ``` root@bash: sudo apt-get install nodejs npm ```.
+
+> **Forever:** just run 
+
+> ``` root@bash: sudo npm install forever ```.
 
 > **Statsd:** Download [https://github.com/etsy/statsd] (the github repo of statsd) and copy all files in a folder (like /opt/statsd/).
 
 > **Graphite:** There are many way to install graphite. I used this one : [http://graphite.readthedocs.io/en/latest/install-pip.html]. If you had dependencies problems you can try this : [https://pastebin.com/raw/a9v5UkbK].
 
-> **Apache2:** Debian/ubuntu based ``` root@bash: sudo apt-get install apache2 ```.
+> **Apache2:** Debian/ubuntu based 
 
-> **Memcached:** Debian/ubuntu based ``` root@bash: sudo apt-get install memcached ```.
+> ``` root@bash: sudo apt-get install apache2 ```.
 
-> **Grafana:** Here too, this should be enough ``` root@bash: sudo apt-get install grafana ``` or check at [http://docs.grafana.org/installation/].
+> **Memcached:** Debian/ubuntu based 
+
+> ``` root@bash: sudo apt-get install memcached ```.
+
+> **Grafana:** Here too, this should be enough (or check at [http://docs.grafana.org/installation/]) :
+
+> ``` root@bash: sudo apt-get install grafana ``` 
 
 ### Configuration :
 
@@ -57,7 +66,7 @@ Legend : <-/-> = dataflux
 >     graphiteHost: "127.0.0.1", 
 >     port: 8125,
 >     backends: [ "./backends/graphite" ]
-> }  
+> }
 > ``` 
 > Save the file (ctrl + x on nano) and it should be ok !
 
@@ -84,7 +93,7 @@ Legend : <-/-> = dataflux
 >pattern = .*
 >xFilesFactor = 0.0
 >aggregationMethod = average
->  
+>
 > ``` 
 > ctrl + x and then : ``` root@bash:  sudo nano /opt/graphite/conf/storage-schemas.conf ``` and paste this configuration :
 > ``` 
@@ -101,7 +110,7 @@ Legend : <-/-> = dataflux
 >pattern = .*
 >retentions = 10:2160,60:10080,600:262974
 > ``` 
-> and again ctrl + x ... ! Now enable memcached on graphite : ``` root@bash: sudo nano /opt/graphite/webapp/graphite/local_settings.py ``` add in the file the following lines
+> and again ctrl + x ... ! Now enable memcached on graphite : ``` root@bash: sudo nano /opt/graphite/webapp/graphite/local_settings.py ``` add the following lines in the file
 > ``` 
 >MEMCACHE_HOSTS = ['127.0.0.1:11211']
 >DEFAULT_CACHE_DURATION = 600
@@ -117,20 +126,25 @@ Legend : <-/-> = dataflux
 
 **Compile the project**
 > ``` root@bash: cd /path/to/cloned/statocashi/repo ```
+
 > ``` root@bash:/statocashi/repo/$ ./autogen.sh ```
-> ``` root@bash:/statocashi/repo/$ ./configure.sh --disable-wallet ``` (--disable-wallet is not necessary, but I don't care on my node !)
+
+> ``` root@bash:/statocashi/repo/$ ./configure --disable-wallet ``` (--disable-wallet is not necessary, but I don't care on my node !)
+
 > ``` root@bash:/statocashi/repo/$ make ```
 
 Now be patient, it depend of your computer (15 mins ~ with 4 Cores i5, more than 40minutes with 2 Cores cpu).
 
 **Create a bitcoin.conf file**
 
-First create a file to notify mining info and txout info :
+First create a file to notify mining info :
 > ``` root@bash: nano /statocashi/where_you_want/notify.sh ``` then paste this :
 > ```#!/bin/bash
->/statocashi/repo/src/bitcoin-cli getmininginfo 
->sleep 30
->/statocashi/repo/src/bitcoin-cli gettxoutsetinf
+>while true
+>do
+>/statocashi/repo/src/bitcoin-cli getmininginfo
+>sleep 60
+>done
 > ```
 
 You can create the file like I do below, or if you had already downloaded the blockchain you can add the following conf lines to you current bitcoin.conf
@@ -138,13 +152,11 @@ You can create the file like I do below, or if you had already downloaded the bl
 > ``` root@bash: nano /statocashi/node_files/bitcoin.conf ``` then paste this :
 >```
 >rpcuser=unguessableUser3256
->rpcpassword=someRandomPasswordWithEnt
+>rpcpassword=someRandomPassword
 >server=1
 >rpcbind=127.0.0.1
 ># this is my node IP  ;)
 >addnode=163.172.219.62:8333 
-># note that you may want to use blocknotify after the node be totally synced (all blocks downloaded) to avoid slow down when downloading the blockchain
->blocknotify=/statocashi/where_you_want/notify.sh
 >```
 
 
@@ -164,13 +176,16 @@ You can create the file like I do below, or if you had already downloaded the bl
 
 **Start the Statocashi node** as a daemon 
 > ``` root@bash: cd /path/to/cloned/statocashi/repo/src ```
+
 > ``` root@bash: ./bitcoind -conf=/statocashi/node_files/bitcoin.conf -daemon ```
 
-At this stage, you can access to your grafana node (http://ip_addr:3000) (default login admin/admin) and began to copy my Dashboard (from preview website) to your grafana. Don't forget to add the Datasource (graphite : localhost:8181) to your Grafana configuration file.
+At this stage, you can access to your grafana node (http://ip_addr:3000) (default login admin/admin) and start to copy my Dashboards (from preview website) to your grafana. Don't forget to add the Datasource (graphite : localhost:8181) to your Grafana configuration file.
 
-Notice that you may have to totally sync your node to see coherent data ...
+Notice that you may have to totally synced your node to see coherent data ...
+Once your node is totally sync with the network run the script to get mining info :
+> ``` root@bash: nohup bash /statocashi/where_you_want/notify.sh & ```
 
-If you get trouble dont hesitate to open an issue !
+If you get trouble dont hesitate to open an issue or contact me !
 
 License
 -------
