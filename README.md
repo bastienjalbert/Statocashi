@@ -135,7 +135,7 @@ Legend : <-/-> = dataflux
 
 Now be patient, it depend of your computer (15 mins ~ with 4 Cores i5, more than 40minutes with 2 Cores cpu).
 
-**Create a bitcoin.conf file**
+**Create a notification script**
 
 First create a file to notify mining info :
 > ``` root@bash: nano /statocashi/where_you_want/notify.sh ``` then paste this :
@@ -147,7 +147,7 @@ First create a file to notify mining info :
 >done
 > ```
 
-You can create the file like I do below, or if you had already downloaded the blockchain you can add the following conf lines to you current bitcoin.conf
+**Create a bitcoin.conf file**
 
 > ``` root@bash: nano /statocashi/node_files/bitcoin.conf ``` then paste this :
 >```
@@ -168,8 +168,8 @@ You can create the file like I do below, or if you had already downloaded the bl
 **Start graphite collector** 
 > ``` root@bash: sudo /opt/graphite/bin/carbon-cache.py start ```
 
-**Start graphite webapp** with the *8181* port
-> ``` root@bash: sudo /opt/graphite/bin/run-graphite-devel-server.py --port 8181 /opt/graphite/ ```
+**Start graphite webapp** with the *8181* port, and listen on *localhost* 
+> ``` root@bash: sudo /opt/graphite/bin/run-graphite-devel-server.py --port 8181 --interface localhost /opt/graphite/ ```
 
 **Start grafana**
 > ``` root@bash: sudo service grafana-server start ```
@@ -182,7 +182,7 @@ You can create the file like I do below, or if you had already downloaded the bl
 At this stage, you can access to your grafana node (http://ip_addr:3000) (default login admin/admin) and start to copy my Dashboards (from preview website) to your grafana. Don't forget to add the Datasource (graphite : localhost:8181) to your Grafana configuration file.
 
 Notice that you may have to totally synced your node to see coherent data ...
-Once your node is totally sync with the network run the script to get mining info :
+Once your node is totally sync with the network, run the script to get mining info :
 > ``` root@bash: nohup bash /statocashi/where_you_want/notify.sh & ```
 
 If you get trouble dont hesitate to open an issue or contact me !
