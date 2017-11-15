@@ -168,8 +168,8 @@ First create a file to notify mining info :
 **Start graphite collector** 
 > ``` root@bash: sudo /opt/graphite/bin/carbon-cache.py start ```
 
-**Start graphite webapp** with the *8181* port
-> ``` root@bash: sudo /opt/graphite/bin/run-graphite-devel-server.py --port 8181 /opt/graphite/ ```
+**Start graphite webapp** with the *8181* port, and listen on *localhost* 
+> ``` root@bash: sudo /opt/graphite/bin/run-graphite-devel-server.py --port 8181 --interface localhost /opt/graphite/ ```
 
 **Start grafana**
 > ``` root@bash: sudo service grafana-server start ```
