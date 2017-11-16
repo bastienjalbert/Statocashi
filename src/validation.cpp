@@ -1376,6 +1376,7 @@ void UpdateCoins(const CTransaction &tx, CCoinsViewCache &inputs,
 
     statsClient.gauge("transactions.txCacheSize", inputs.GetCacheSize(), 0.1f);
     // Add outputs.
+    AddCoins(inputs, tx, nHeight);
     
 }
 
