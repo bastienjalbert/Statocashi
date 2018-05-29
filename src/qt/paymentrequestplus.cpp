@@ -150,8 +150,8 @@ bool PaymentRequestPlus::getMerchant(X509_STORE *certStore,
             // This option is just shown in the UI options, if -help-debug is
             // enabled.
             if (!(error == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT &&
-                  GetBoolArg("-allowselfsignedrootcertificates",
-                             DEFAULT_SELFSIGNED_ROOTCERTS))) {
+                  gArgs.GetBoolArg("-allowselfsignedrootcertificates",
+                                   DEFAULT_SELFSIGNED_ROOTCERTS))) {
                 throw SSLVerifyError(X509_verify_cert_error_string(error));
             } else {
                 qDebug() << "PaymentRequestPlus::getMerchant: Allowing self "
@@ -219,14 +219,14 @@ bool PaymentRequestPlus::getMerchant(X509_STORE *certStore,
     return fResult;
 }
 
-QList<std::pair<CScript, CAmount>> PaymentRequestPlus::getPayTo() const {
-    QList<std::pair<CScript, CAmount>> result;
+QList<std::pair<CScript, Amount>> PaymentRequestPlus::getPayTo() const {
+    QList<std::pair<CScript, Amount>> result;
     for (int i = 0; i < details.outputs_size(); i++) {
         const uint8_t *scriptStr =
             (const uint8_t *)details.outputs(i).script().data();
         CScript s(scriptStr, scriptStr + details.outputs(i).script().size());
 
-        result.append(std::make_pair(s, details.outputs(i).amount()));
+        result.append(std::make_pair(s, Amount(details.outputs(i).amount())));
     }
     return result;
 }

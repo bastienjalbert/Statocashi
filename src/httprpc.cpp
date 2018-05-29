@@ -16,11 +16,10 @@
 #include "ui_interface.h"
 #include "util.h"
 #include "utilstrencodings.h"
-#include "utilstrencodings.h"
-
-#include <cstdio>
 
 #include <boost/algorithm/string.hpp> // boost::trim
+
+#include <cstdio>
 
 /** WWW-Authenticate to present with 401 Unauthorized response */
 static const char *WWW_AUTH_HEADER_DATA = "Basic realm=\"jsonrpc\"";
@@ -46,8 +45,9 @@ private:
 class HTTPRPCTimerInterface : public RPCTimerInterface {
 public:
     HTTPRPCTimerInterface(struct event_base *_base) : base(_base) {}
-    const char *Name() { return "HTTP"; }
-    RPCTimerBase *NewTimer(std::function<void(void)> &func, int64_t millis) {
+    const char *Name() override { return "HTTP"; }
+    RPCTimerBase *NewTimer(std::function<void(void)> &func,
+                           int64_t millis) override {
         return new HTTPRPCTimer(base, func, millis);
     }
 
@@ -59,6 +59,8 @@ private:
 static std::string strRPCUserColonPass;
 /* Stored RPC timer interface (for unregistration) */
 static HTTPRPCTimerInterface *httpRPCTimerInterface = 0;
+/* RPC CORS Domain, allowed Origin */
+static std::string strRPCCORSDomain;
 
 static void JSONErrorReply(HTTPRequest *req, const UniValue &objError,
                            const UniValue &id) {
@@ -86,9 +88,9 @@ static bool multiUserAuthorized(std::string strUserPass) {
     std::string strUser = strUserPass.substr(0, strUserPass.find(":"));
     std::string strPass = strUserPass.substr(strUserPass.find(":") + 1);
 
-    if (mapMultiArgs.count("-rpcauth") > 0) {
+    if (gArgs.IsArgSet("-rpcauth")) {
         // Search for multi-user login/pass "rpcauth" from config
-        for (const std::string &strRPCAuth : mapMultiArgs.at("-rpcauth")) {
+        for (const std::string &strRPCAuth : gArgs.GetArgs("-rpcauth")) {
             std::vector<std::string> vFields;
             boost::split(vFields, strRPCAuth, boost::is_any_of(":$"));
             if (vFields.size() != 3) {
@@ -149,8 +151,135 @@ static bool RPCAuthorized(const std::string &strAuth,
     return multiUserAuthorized(strUserPass);
 }
 
+static bool checkCORS(HTTPRequest *req) {
+    // https://www.w3.org/TR/cors/#resource-requests
+
+    // 1. If the Origin header is not present terminate this set of steps.
+    // The request is outside the scope of this specification.
+    std::pair<bool, std::string> origin = req->GetHeader("origin");
+    if (!origin.first) {
+        return false;
+    }
+
+    // 2. If the value of the Origin header is not a case-sensitive match for
+    // any of the values in list of origins do not set any additional headers
+    // and terminate this set of steps.
+    // Note: Always matching is acceptable since the list of origins can be
+    // unbounded.
+    if (origin.second != strRPCCORSDomain) {
+        return false;
+    }
+
+    if (req->GetRequestMethod() == HTTPRequest::OPTIONS) {
+        // 6.2 Preflight Request
+        // In response to a preflight request the resource indicates which
+        // methods and headers (other than simple methods and simple
+        // headers) it is willing to handle and whether it supports
+        // credentials.
+        // Resources must use the following set of steps to determine which
+        // additional headers to use in the response:
+
+        // 3. Let method be the value as result of parsing the
+        // Access-Control-Request-Method header.
+        // If there is no Access-Control-Request-Method header or if parsing
+        // failed, do not set any additional headers and terminate this set
+        // of steps. The request is outside the scope of this specification.
+        std::pair<bool, std::string> method =
+            req->GetHeader("access-control-request-method");
+        if (!method.first) {
+            return false;
+        }
+
+        // 4. Let header field-names be the values as result of parsing
+        // the Access-Control-Request-Headers headers.
+        // If there are no Access-Control-Request-Headers headers let header
+        // field-names be the empty list.
+        // If parsing failed do not set any additional headers and terminate
+        // this set of steps. The request is outside the scope of this
+        // specification.
+        std::pair<bool, std::string> header_field_names =
+            req->GetHeader("access-control-request-headers");
+
+        // 5. If method is not a case-sensitive match for any of the
+        // values in list of methods do not set any additional headers
+        // and terminate this set of steps.
+        // Note: Always matching is acceptable since the list of methods
+        // can be unbounded.
+        if (method.second != "POST") {
+            return false;
+        }
+
+        // 6. If any of the header field-names is not a ASCII case-
+        // insensitive match for any of the values in list of headers do not
+        // set any additional headers and terminate this set of steps.
+        // Note: Always matching is acceptable since the list of headers can
+        // be unbounded.
+        const std::string& list_of_headers = "authorization,content-type";
+
+        // 7. If the resource supports credentials add a single
+        // Access-Control-Allow-Origin header, with the value of the Origin
+        // header as value, and add a single
+        // Access-Control-Allow-Credentials header with the case-sensitive
+        // string "true" as value.
+        req->WriteHeader("Access-Control-Allow-Origin", origin.second);
+        req->WriteHeader("Access-Control-Allow-Credentials", "true");
+
+        // 8. Optionally add a single Access-Control-Max-Age header with as
+        // value the amount of seconds the user agent is allowed to cache
+        // the result of the request.
+
+        // 9. If method is a simple method this step may be skipped.
+        // Add one or more Access-Control-Allow-Methods headers consisting
+        // of (a subset of) the list of methods.
+        // If a method is a simple method it does not need to be listed, but
+        // this is not prohibited.
+        // Note: Since the list of methods can be unbounded, simply
+        // returning the method indicated by
+        // Access-Control-Request-Method (if supported) can be enough.
+        req->WriteHeader("Access-Control-Allow-Methods", method.second);
+
+        // 10. If each of the header field-names is a simple header and none
+        // is Content-Type, this step may be skipped.
+        // Add one or more Access-Control-Allow-Headers headers consisting
+        // of (a subset of) the list of headers.
+        req->WriteHeader(
+            "Access-Control-Allow-Headers",
+            header_field_names.first ? header_field_names.second
+                                        : list_of_headers);
+        req->WriteReply(HTTP_OK);
+        return true;
+    }
+
+    // 6.1 Simple Cross-Origin Request, Actual Request, and Redirects
+    // In response to a simple cross-origin request or actual request the
+    // resource indicates whether or not to share the response.
+    // If the resource has been relocated, it indicates whether to share its
+    // new URL.
+    // Resources must use the following set of steps to determine which
+    // additional headers to use in the response:
+
+    // 3. If the resource supports credentials add a single
+    // Access-Control-Allow-Origin header, with the value of the Origin
+    // header as value, and add a single Access-Control-Allow-Credentials
+    // header with the case-sensitive string "true" as value.
+    req->WriteHeader("Access-Control-Allow-Origin", origin.second);
+    req->WriteHeader("Access-Control-Allow-Credentials", "true");
+
+    // 4. If the list of exposed headers is not empty add one or more
+    // Access-Control-Expose-Headers headers, with as values the header
+    // field names given in the list of exposed headers.
+    req->WriteHeader("Access-Control-Expose-Headers", "WWW-Authenticate");
+
+    return false;
+}
+
 static bool HTTPReq_JSONRPC(Config &config, HTTPRequest *req,
                             const std::string &) {
+    // First, check and/or set CORS headers
+    if (checkCORS(req)) {
+        return true;
+    }
+
     // JSONRPC handles only POST
     if (req->GetRequestMethod() != HTTPRequest::POST) {
         req->WriteReply(HTTP_BAD_METHOD,
@@ -198,10 +327,9 @@ static bool HTTPReq_JSONRPC(Config &config, HTTPRequest *req,
 
             // Send reply
             strReply = JSONRPCReply(result, NullUniValue, jreq.id);
-
-            // array of requests
         } else if (valRequest.isArray()) {
-            strReply = JSONRPCExecBatch(config, valRequest.get_array());
+            // array of requests
+            strReply = JSONRPCExecBatch(config, jreq, valRequest.get_array());
         } else {
             throw JSONRPCError(RPC_PARSE_ERROR, "Top-level object parse error");
         }
@@ -219,7 +347,7 @@ static bool HTTPReq_JSONRPC(Config &config, HTTPRequest *req,
 }
 
 static bool InitRPCAuthentication() {
-    if (GetArg("-rpcpassword", "") == "") {
+    if (gArgs.GetArg("-rpcpassword", "") == "") {
         LogPrintf("No rpcpassword set - using random cookie authentication\n");
         if (!GenerateAuthCookie(&strRPCUserColonPass)) {
             // Same message as AbortNode.
@@ -234,18 +362,24 @@ static bool InitRPCAuthentication() {
                   "deprecated. Locally-run instances may remove rpcuser to use "
                   "cookie-based auth, or may be replaced with rpcauth. Please "
                   "see share/rpcuser for rpcauth auth generation.\n");
-        strRPCUserColonPass =
-            GetArg("-rpcuser", "") + ":" + GetArg("-rpcpassword", "");
+        strRPCUserColonPass = gArgs.GetArg("-rpcuser", "") + ":" +
+                              gArgs.GetArg("-rpcpassword", "");
     }
+
+    strRPCCORSDomain = gArgs.GetArg("-rpccorsdomain", "");
     return true;
 }
 
 bool StartHTTPRPC() {
-    LogPrint("rpc", "Starting HTTP RPC server\n");
+    LogPrint(BCLog::RPC, "Starting HTTP RPC server\n");
     if (!InitRPCAuthentication()) return false;
 
     RegisterHTTPHandler("/", true, HTTPReq_JSONRPC);
-
+#ifdef ENABLE_WALLET
+    // ifdef can be removed once we switch to better endpoint support and API
+    // versioning
+    RegisterHTTPHandler("/wallet/", false, HTTPReq_JSONRPC);
+#endif
     assert(EventBase());
     httpRPCTimerInterface = new HTTPRPCTimerInterface(EventBase());
     RPCSetTimerInterface(httpRPCTimerInterface);
@@ -253,11 +387,11 @@ bool StartHTTPRPC() {
 }
 
 void InterruptHTTPRPC() {
-    LogPrint("rpc", "Interrupting HTTP RPC server\n");
+    LogPrint(BCLog::RPC, "Interrupting HTTP RPC server\n");
 }
 
 void StopHTTPRPC() {
-    LogPrint("rpc", "Stopping HTTP RPC server\n");
+    LogPrint(BCLog::RPC, "Stopping HTTP RPC server\n");
     UnregisterHTTPHandler("/", true);
     if (httpRPCTimerInterface) {
         RPCUnsetTimerInterface(httpRPCTimerInterface);

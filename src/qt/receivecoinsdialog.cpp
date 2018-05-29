@@ -23,9 +23,9 @@
 #include <QTextDocument>
 
 ReceiveCoinsDialog::ReceiveCoinsDialog(const PlatformStyle *_platformStyle,
-                                       QWidget *parent)
+                                       const Config *cfg, QWidget *parent)
     : QDialog(parent), ui(new Ui::ReceiveCoinsDialog), columnResizingFixer(0),
-      model(0), platformStyle(_platformStyle) {
+      model(0), platformStyle(_platformStyle), cfg(cfg) {
     ui->setupUi(this);
 
     if (!_platformStyle->getImagesOnButtons()) {
@@ -159,7 +159,7 @@ void ReceiveCoinsDialog::on_receiveButton_clicked() {
     }
     SendCoinsRecipient info(address, label, ui->reqAmount->value(),
                             ui->reqMessage->text());
-    ReceiveRequestDialog *dialog = new ReceiveRequestDialog(this);
+    ReceiveRequestDialog *dialog = new ReceiveRequestDialog(cfg, this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setModel(model->getOptionsModel());
     dialog->setInfo(info);
@@ -174,7 +174,7 @@ void ReceiveCoinsDialog::on_recentRequestsView_doubleClicked(
     const QModelIndex &index) {
     const RecentRequestsTableModel *submodel =
         model->getRecentRequestsTableModel();
-    ReceiveRequestDialog *dialog = new ReceiveRequestDialog(this);
+    ReceiveRequestDialog *dialog = new ReceiveRequestDialog(cfg, this);
     dialog->setModel(model->getOptionsModel());
     dialog->setInfo(submodel->entry(index.row()).recipient);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -278,7 +278,7 @@ void ReceiveCoinsDialog::copyURI() {
     const RecentRequestsTableModel *const submodel =
         model->getRecentRequestsTableModel();
     const QString uri =
-        GUIUtil::formatBitcoinURI(submodel->entry(sel.row()).recipient);
+        GUIUtil::formatBitcoinURI(*cfg, submodel->entry(sel.row()).recipient);
     GUIUtil::setClipboard(uri);
 }
 

@@ -1,11 +1,11 @@
 // Copyright (c) 2012-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
-#include "net.h"
 #include "addrman.h"
 #include "chainparams.h"
 #include "config.h"
 #include "hash.h"
+#include "net.h"
 #include "netbase.h"
 #include "serialize.h"
 #include "streams.h"
@@ -28,12 +28,12 @@ public:
 
 class CAddrManUncorrupted : public CAddrManSerializationMock {
 public:
-    void Serialize(CDataStream &s) const { CAddrMan::Serialize(s); }
+    void Serialize(CDataStream &s) const override { CAddrMan::Serialize(s); }
 };
 
 class CAddrManCorrupted : public CAddrManSerializationMock {
 public:
-    void Serialize(CDataStream &s) const {
+    void Serialize(CDataStream &s) const override {
         // Produces corrupt output that claims addrman has 20 addrs when it only
         // has one addr.
         uint8_t nVersion = 1;
@@ -58,7 +58,7 @@ public:
 
 CDataStream AddrmanToStream(CAddrManSerializationMock &_addrman) {
     CDataStream ssPeersIn(SER_DISK, CLIENT_VERSION);
-    ssPeersIn << FLATDATA(Params().MessageStart());
+    ssPeersIn << FLATDATA(Params().DiskMagic());
     ssPeersIn << _addrman;
     std::string str = ssPeersIn.str();
     std::vector<uint8_t> vchData(str.begin(), str.end());
@@ -105,7 +105,7 @@ BOOST_AUTO_TEST_CASE(caddrdb_read) {
     CDataStream ssPeers2 = AddrmanToStream(addrmanUncorrupted);
 
     CAddrMan addrman2;
-    CAddrDB adb;
+    CAddrDB adb(Params());
     BOOST_CHECK(addrman2.size() == 0);
     adb.Read(addrman2, ssPeers2);
     BOOST_CHECK(addrman2.size() == 3);
@@ -137,7 +137,7 @@ BOOST_AUTO_TEST_CASE(caddrdb_read_corrupted) {
     CDataStream ssPeers2 = AddrmanToStream(addrmanCorrupted);
 
     CAddrMan addrman2;
-    CAddrDB adb;
+    CAddrDB adb(Params());
     BOOST_CHECK(addrman2.size() == 0);
     adb.Read(addrman2, ssPeers2);
     BOOST_CHECK(addrman2.size() == 0);
@@ -191,11 +191,11 @@ BOOST_AUTO_TEST_CASE(test_userAgentLength) {
                                  "very very very very very very very very very "
                                  "very very very very very very very very very "
                                  "very very very very very very long comment";
-    ForceSetMultiArg("-uacomment", long_uacomment);
+    gArgs.ForceSetMultiArg("-uacomment", long_uacomment);
 
     BOOST_CHECK_EQUAL(userAgent(config).size(), MAX_SUBVERSION_LENGTH);
     BOOST_CHECK_EQUAL(userAgent(config),
-                      "/Bitcoin ABC:0.16.0(EB8.0; very very very very very "
+                      "/Bitcoin ABC:0.17.2(EB8.0; very very very very very "
                       "very very very very very very very very very very very "
                       "very very very very very very very very very very very "
                       "very very very very very very very very very very very "

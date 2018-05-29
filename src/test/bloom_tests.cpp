@@ -228,8 +228,9 @@ BOOST_AUTO_TEST_CASE(bloom_match) {
                            0);
     {
         std::vector<uint8_t> data(32 + sizeof(unsigned int));
-        memcpy(&data[0], prevOutPoint.hash.begin(), 32);
-        memcpy(&data[32], &prevOutPoint.n, sizeof(unsigned int));
+        memcpy(&data[0], prevOutPoint.GetTxId().begin(), 32);
+        uint32_t n = prevOutPoint.GetN();
+        memcpy(&data[32], &n, sizeof(uint32_t));
         filter.insert(data);
     }
     BOOST_CHECK_MESSAGE(
@@ -1050,7 +1051,7 @@ BOOST_AUTO_TEST_CASE(merkle_block_4_test_update_none) {
 }
 
 static std::vector<uint8_t> RandomData() {
-    uint256 r = GetRandHash();
+    uint256 r = InsecureRand256();
     return std::vector<uint8_t>(r.begin(), r.end());
 }
 

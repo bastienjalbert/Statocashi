@@ -80,7 +80,7 @@ const std::string BitcoinGUI::DEFAULT_UIPLATFORM =
  */
 const QString BitcoinGUI::DEFAULT_WALLET = "~Default";
 
-BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle,
+BitcoinGUI::BitcoinGUI(const Config *cfg, const PlatformStyle *_platformStyle,
                        const NetworkStyle *networkStyle, QWidget *parent)
     : QMainWindow(parent), enableWallet(false), clientModel(0), walletFrame(0),
       unitDisplayControl(0), labelWalletEncryptionIcon(0),
@@ -95,7 +95,7 @@ BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle,
       aboutQtAction(0), openRPCConsoleAction(0), openAction(0),
       showHelpMessageAction(0), trayIcon(0), trayIconMenu(0), notificator(0),
       rpcConsole(0), helpMessageDialog(0), modalOverlay(0), prevBlocks(0),
-      spinnerFrame(0), platformStyle(_platformStyle) {
+      spinnerFrame(0), platformStyle(_platformStyle), cfg(cfg) {
     GUIUtil::restoreWindowGeometry("nWindow", QSize(850, 550), this);
 
     QString windowTitle = tr(PACKAGE_NAME) + " - ";
@@ -127,7 +127,7 @@ BitcoinGUI::BitcoinGUI(const PlatformStyle *_platformStyle,
 #ifdef ENABLE_WALLET
     if (enableWallet) {
         /** Create wallet frame and make it the central widget */
-        walletFrame = new WalletFrame(_platformStyle, this);
+        walletFrame = new WalletFrame(_platformStyle, cfg, this);
         setCentralWidget(walletFrame);
     } else
 #endif // ENABLE_WALLET
@@ -285,7 +285,7 @@ void BitcoinGUI::createActions() {
         tr("&Receive"), this);
     receiveCoinsAction->setStatusTip(
         tr("Request payments (generates QR codes and %1: URIs)")
-            .arg(GUIUtil::URI_SCHEME));
+            .arg(GUIUtil::bitcoinURIScheme(*cfg)));
     receiveCoinsAction->setToolTip(receiveCoinsAction->statusTip());
     receiveCoinsAction->setCheckable(true);
     receiveCoinsAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_3));
@@ -410,8 +410,8 @@ void BitcoinGUI::createActions() {
 
     openAction = new QAction(platformStyle->TextColorIcon(":/icons/open"),
                              tr("Open &URI..."), this);
-    openAction->setStatusTip(
-        tr("Open a %1: URI or payment request").arg(GUIUtil::URI_SCHEME));
+    openAction->setStatusTip(tr("Open a %1: URI or payment request")
+                                 .arg(GUIUtil::bitcoinURIScheme(*cfg)));
 
     showHelpMessageAction =
         new QAction(platformStyle->TextColorIcon(":/icons/info"),
@@ -712,7 +712,7 @@ void BitcoinGUI::showHelpMessageClicked() {
 
 #ifdef ENABLE_WALLET
 void BitcoinGUI::openClicked() {
-    OpenURIDialog dlg(this);
+    OpenURIDialog dlg(cfg, this);
     if (dlg.exec()) {
         Q_EMIT receivedURI(dlg.getURI());
     }
@@ -1025,7 +1025,7 @@ void BitcoinGUI::showEvent(QShowEvent *event) {
 
 #ifdef ENABLE_WALLET
 void BitcoinGUI::incomingTransaction(const QString &date, int unit,
-                                     const CAmount &amount, const QString &type,
+                                     const Amount amount, const QString &type,
                                      const QString &address,
                                      const QString &label) {
     // On new transaction, make an info balloon
@@ -1037,7 +1037,8 @@ void BitcoinGUI::incomingTransaction(const QString &date, int unit,
         msg += tr("Label: %1\n").arg(label);
     else if (!address.isEmpty())
         msg += tr("Address: %1\n").arg(address);
-    message((amount) < 0 ? tr("Sent transaction") : tr("Incoming transaction"),
+    message(amount < Amount(0) ? tr("Sent transaction")
+                               : tr("Incoming transaction"),
             msg, CClientUIInterface::MSG_INFORMATION);
 }
 #endif // ENABLE_WALLET

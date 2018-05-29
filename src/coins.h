@@ -15,7 +15,6 @@
 
 #include <cassert>
 #include <cstdint>
-
 #include <unordered_map>
 
 /**
@@ -87,7 +86,7 @@ public:
      * implementation.
      */
     size_t operator()(const COutPoint &outpoint) const {
-        return SipHashUint256Extra(k0, k1, outpoint.hash, outpoint.n);
+        return SipHashUint256Extra(k0, k1, outpoint.GetTxId(), outpoint.GetN());
     }
 };
 
@@ -149,6 +148,13 @@ public:
     //! Retrieve the block hash whose state this CCoinsView currently represents
     virtual uint256 GetBestBlock() const;
 
+    //! Retrieve the range of blocks that may have been only partially written.
+    //! If the database is in a consistent state, the result is the empty
+    //! vector.
+    //! Otherwise, a two-element vector is returned consisting of the new and
+    //! the old block hash, in that order.
+    virtual std::vector<uint256> GetHeadBlocks() const;
+
     //! Do a bulk modification (multiple Coin changes + BestBlock change).
     //! The passed mapCoins can be modified.
     virtual bool BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock);
@@ -173,6 +179,7 @@ public:
     bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
     bool HaveCoin(const COutPoint &outpoint) const override;
     uint256 GetBestBlock() const override;
+    std::vector<uint256> GetHeadBlocks() const override;
     void SetBackend(CCoinsView &viewIn);
     bool BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) override;
     CCoinsViewCursor *Cursor() const override;
@@ -198,11 +205,11 @@ public:
     CCoinsViewCache(CCoinsView *baseIn);
 
     // Standard CCoinsView methods
-    bool GetCoin(const COutPoint &outpoint, Coin &coin) const;
-    bool HaveCoin(const COutPoint &outpoint) const;
-    uint256 GetBestBlock() const;
+    bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
+    bool HaveCoin(const COutPoint &outpoint) const override;
+    uint256 GetBestBlock() const override;
     void SetBestBlock(const uint256 &hashBlock);
-    bool BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock);
+    bool BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) override;
 
     /**
      * Check if we have the given utxo already loaded in this cache.
@@ -287,12 +294,16 @@ private:
 };
 
 //! Utility function to add all of a transaction's outputs to a cache.
-// It assumes that overwrites are only possible for coinbase transactions.
+// When check is false, this assumes that overwrites are only possible for
+// coinbase transactions.
+// When check is true, the underlying view may be queried to determine whether
+// an addition is an overwrite.
 // TODO: pass in a boolean to limit these possible overwrites to known
 // (pre-BIP34) cases.
-void AddCoins(CCoinsViewCache &cache, const CTransaction &tx, int nHeight);
+void AddCoins(CCoinsViewCache &cache, const CTransaction &tx, int nHeight,
+              bool check = false);
 
 //! Utility function to find any unspent output with a given txid.
-const Coin &AccessByTxid(const CCoinsViewCache &cache, const uint256 &txid);
+const Coin &AccessByTxid(const CCoinsViewCache &cache, const TxId &txid);
 
 #endif // BITCOIN_COINS_H

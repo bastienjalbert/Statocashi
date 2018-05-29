@@ -15,7 +15,7 @@ MIN_BLOCKS = 337600
 # These are hosts that have been observed to be behaving strangely (e.g.
 # aggressively connecting to every node).
 SUSPICIOUS_HOSTS = {
-    "130.211.129.106", "178.63.107.226",
+    "23.92.36.9", "72.36.89.11", "130.211.129.106", "178.63.107.226",
     "83.81.130.26", "88.198.17.7", "148.251.238.178", "176.9.46.6",
     "54.173.72.127", "54.174.10.182", "54.183.64.54", "54.194.231.211",
     "54.66.214.167", "54.66.220.137", "54.67.33.14", "54.77.251.214",
@@ -34,16 +34,16 @@ PATTERN_ONION = re.compile(
     r"^([abcdefghijklmnopqrstuvwxyz234567]{16}\.onion):(\d+)$")
 
 # Used to only select nodes with a user agent string compatible with the
-# BCC/UAHF specification.
+# BCH/UAHF specification.
 PATTERN_AGENT = re.compile(
-    r"^(/BitcoinABC:0.16.(\d+)\(\S+\)/|/BitcoinXT:0.11.0G\(\S+\)/|/BUCash:1.1.(\d+)\(\S+\)/|/Classic:1.3.(\d+)\(\S+\)/)")
+    r"^(/BitcoinABC:0.17.(\d+)\(\S+\)/|/BitcoinXT:0.11\(\S+\)/|/BUCash:1.3.(\d+)\(\S+\)/)")
 
 
 def parseline(line):
     sline = line.split()
     if len(sline) < 11:
         return None
-    # All BCC clients apart BU and Classic has a space in the useragent string
+    # All BCH clients apart BU and Classic has a space in the useragent string
     if len(sline) == 13:
         sline[11] = sline[11] + sline[12]
     if len(sline) == 14:
@@ -178,9 +178,9 @@ def main():
     # Filter out hosts with multiple bitcoin ports, these are likely abusive
     ips = filtermultiport(ips)
     # Look up ASNs and limit results, both per ASN and globally.
-    # TODO during this bootstrap phase we need any BCC full nodes
+    # TODO during this bootstrap phase we need any BCH full nodes
     # active on the network, uncomment the following line once the
-    # BCC chain will be consolidated.
+    # BCH chain will be consolidated.
     # ips = filterbyasn(ips, MAX_SEEDS_PER_ASN, NSEEDS)
     # Sort the results by IP address (for deterministic output).
     ips.sort(key=lambda x: (x['net'], x['sortkey']))

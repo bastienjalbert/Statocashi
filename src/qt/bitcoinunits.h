@@ -56,7 +56,7 @@ public:
      * @note Source: https://en.bitcoin.it/wiki/Units.
      * Please add only sensible ones.
      */
-    enum Unit { BCC, mBCC, uBCC };
+    enum Unit { BCH, mBCH, uBCH };
 
     enum SeparatorStyle { separatorNever, separatorStandard, separatorAlways };
 
@@ -77,19 +77,18 @@ public:
     //! Number of decimals left
     static int decimals(int unit);
     //! Format as string
-    static QString format(int unit, const CAmount &amount,
-                          bool plussign = false,
+    static QString format(int unit, const Amount amount, bool plussign = false,
                           SeparatorStyle separators = separatorStandard);
     //! Format as string (with unit)
     static QString
-    formatWithUnit(int unit, const CAmount &amount, bool plussign = false,
+    formatWithUnit(int unit, const Amount amount, bool plussign = false,
                    SeparatorStyle separators = separatorStandard);
     //! Format as HTML string (with unit)
     static QString
-    formatHtmlWithUnit(int unit, const CAmount &amount, bool plussign = false,
+    formatHtmlWithUnit(int unit, const Amount amount, bool plussign = false,
                        SeparatorStyle separators = separatorStandard);
     //! Parse string to coin amount
-    static bool parse(int unit, const QString &value, CAmount *val_out);
+    static bool parse(int unit, const QString &value, Amount *val_out);
     //! Gets title for amount column including current display unit if
     //! optionsModel reference available */
     static QString getAmountColumnTitle(int unit);
@@ -102,8 +101,8 @@ public:
         /** Unit identifier */
         UnitRole = Qt::UserRole
     };
-    int rowCount(const QModelIndex &parent) const;
-    QVariant data(const QModelIndex &index, int role) const;
+    int rowCount(const QModelIndex &parent) const override;
+    QVariant data(const QModelIndex &index, int role) const override;
     ///@}
 
     static QString removeSpaces(QString text) {
@@ -116,7 +115,7 @@ public:
     }
 
     //! Return maximum number of base units (Satoshis)
-    static CAmount maxMoney();
+    static Amount maxMoney();
 
 private:
     QList<BitcoinUnits::Unit> unitlist;

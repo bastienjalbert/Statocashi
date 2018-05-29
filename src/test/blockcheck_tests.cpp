@@ -17,8 +17,9 @@ BOOST_FIXTURE_TEST_SUITE(blockcheck_tests, BasicTestingSetup)
 static void RunCheckOnBlockImpl(const GlobalConfig &config, const CBlock &block,
                                 CValidationState &state, bool expected) {
     block.fChecked = false;
-    const Consensus::Params &params = config.GetChainParams().GetConsensus();
-    bool fValid = CheckBlock(config, block, state, params, false, false);
+    BlockValidationOptions validationOptions =
+        BlockValidationOptions(false, false);
+    bool fValid = CheckBlock(config, block, state, validationOptions);
 
     BOOST_CHECK_EQUAL(fValid, expected);
     BOOST_CHECK_EQUAL(fValid, state.IsValid());
@@ -54,7 +55,7 @@ BOOST_AUTO_TEST_CASE(blockfail) {
     tx.vin.resize(1);
     tx.vin[0].scriptSig.resize(10);
     tx.vout.resize(1);
-    tx.vout[0].nValue = 42;
+    tx.vout[0].nValue = Amount(42);
     auto coinbaseTx = CTransaction(tx);
 
     block.vtx.resize(1);
@@ -62,8 +63,7 @@ BOOST_AUTO_TEST_CASE(blockfail) {
     RunCheckOnBlock(config, block);
 
     // No coinbase
-    tx.vin[0].prevout.hash = GetRandHash();
-    tx.vin[0].prevout.n = 0;
+    tx.vin[0].prevout = COutPoint(InsecureRand256(), 0);
     block.vtx[0] = MakeTransactionRef(tx);
 
     RunCheckOnBlock(config, block, "bad-cb-missing");
@@ -78,12 +78,11 @@ BOOST_AUTO_TEST_CASE(blockfail) {
     // Oversize block.
     tx = CMutableTransaction(coinbaseTx);
     block.vtx[0] = MakeTransactionRef(tx);
-    tx.vin[0].prevout.n = 0;
     auto txSize = ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION);
     auto maxTxCount = ((DEFAULT_MAX_BLOCK_SIZE - 1) / txSize) - 1;
 
     for (size_t i = 1; i < maxTxCount; i++) {
-        tx.vin[0].prevout.hash = GetRandHash();
+        tx.vin[0].prevout = COutPoint(InsecureRand256(), 0);
         block.vtx.push_back(MakeTransactionRef(tx));
     }
 
@@ -92,7 +91,7 @@ BOOST_AUTO_TEST_CASE(blockfail) {
 
     // But reject it with one more transaction as it goes over the maximum
     // allowed block size.
-    tx.vin[0].prevout.hash = GetRandHash();
+    tx.vin[0].prevout = COutPoint(InsecureRand256(), 0);
     block.vtx.push_back(MakeTransactionRef(tx));
     RunCheckOnBlock(config, block, "bad-blk-length");
 }

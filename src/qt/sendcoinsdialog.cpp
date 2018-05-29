@@ -15,8 +15,8 @@
 #include "sendcoinsentry.h"
 #include "walletmodel.h"
 
-#include "base58.h"
 #include "chainparams.h"
+#include "dstencode.h"
 #include "txmempool.h"
 #include "ui_interface.h"
 #include "validation.h" // mempool and minRelayTxFee
@@ -124,7 +124,8 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle,
     if (!settings.contains("nSmartFeeSliderPosition"))
         settings.setValue("nSmartFeeSliderPosition", 0);
     if (!settings.contains("nTransactionFee"))
-        settings.setValue("nTransactionFee", (qint64)DEFAULT_TRANSACTION_FEE);
+        settings.setValue("nTransactionFee",
+                          (qint64)DEFAULT_TRANSACTION_FEE.GetSatoshis());
     if (!settings.contains("fPayOnlyMinFee"))
         settings.setValue("fPayOnlyMinFee", false);
     ui->groupFee->setId(ui->radioSmartFee, 0);
@@ -139,7 +140,8 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle,
         ->button((int)std::max(
             0, std::min(1, settings.value("nCustomFeeRadio").toInt())))
         ->setChecked(true);
-    ui->customFee->setValue(settings.value("nTransactionFee").toLongLong());
+    ui->customFee->setValue(
+        Amount(settings.value("nTransactionFee").toLongLong()));
     ui->checkBoxMinimumFee->setChecked(
         settings.value("fPayOnlyMinFee").toBool());
     minimizeFeeSection(settings.value("fFeeSectionMinimized").toBool());
@@ -171,10 +173,10 @@ void SendCoinsDialog::setModel(WalletModel *_model) {
                    _model->getImmatureBalance(), _model->getWatchBalance(),
                    _model->getWatchUnconfirmedBalance(),
                    _model->getWatchImmatureBalance());
-        connect(_model, SIGNAL(balanceChanged(CAmount, CAmount, CAmount,
-                                              CAmount, CAmount, CAmount)),
-                this, SLOT(setBalance(CAmount, CAmount, CAmount, CAmount,
-                                      CAmount, CAmount)));
+        connect(_model, SIGNAL(balanceChanged(Amount, Amount, Amount, Amount,
+                                              Amount, Amount)),
+                this, SLOT(setBalance(Amount, Amount, Amount, Amount, Amount,
+                                      Amount)));
         connect(_model->getOptionsModel(), SIGNAL(displayUnitChanged(int)),
                 this, SLOT(updateDisplayUnit()));
         updateDisplayUnit();
@@ -242,7 +244,8 @@ SendCoinsDialog::~SendCoinsDialog() {
     settings.setValue("nFeeRadio", ui->groupFee->checkedId());
     settings.setValue("nCustomFeeRadio", ui->groupCustomFee->checkedId());
     settings.setValue("nSmartFeeSliderPosition", ui->sliderSmartFee->value());
-    settings.setValue("nTransactionFee", (qint64)ui->customFee->value());
+    settings.setValue("nTransactionFee",
+                      (qint64)ui->customFee->value().GetSatoshis());
     settings.setValue("fPayOnlyMinFee", ui->checkBoxMinimumFee->isChecked());
 
     delete ui;
@@ -306,7 +309,7 @@ void SendCoinsDialog::on_sendButton_clicked() {
         return;
     }
 
-    CAmount txFee = currentTransaction.getTransactionFee();
+    Amount txFee = currentTransaction.getTransactionFee();
 
     // Format confirmation message
     QStringList formatted;
@@ -351,7 +354,7 @@ void SendCoinsDialog::on_sendButton_clicked() {
     QString questionString = tr("Are you sure you want to send?");
     questionString.append("<br /><br />%1");
 
-    if (txFee > 0) {
+    if (txFee > Amount(0)) {
         // append fee string if a fee is required
         questionString.append("<hr /><span style='color:#aa0000;'>");
         questionString.append(BitcoinUnits::formatHtmlWithUnit(
@@ -368,8 +371,7 @@ void SendCoinsDialog::on_sendButton_clicked() {
 
     // add total amount in all subdivision units
     questionString.append("<hr />");
-    CAmount totalAmount =
-        currentTransaction.getTotalTransactionAmount() + txFee;
+    Amount totalAmount = currentTransaction.getTotalTransactionAmount() + txFee;
     QStringList alternativeUnits;
     for (BitcoinUnits::Unit u : BitcoinUnits::availableUnits()) {
         if (u != model->getOptionsModel()->getDisplayUnit())
@@ -526,12 +528,12 @@ bool SendCoinsDialog::handlePaymentRequest(const SendCoinsRecipient &rv) {
     return true;
 }
 
-void SendCoinsDialog::setBalance(const CAmount &balance,
-                                 const CAmount &unconfirmedBalance,
-                                 const CAmount &immatureBalance,
-                                 const CAmount &watchBalance,
-                                 const CAmount &watchUnconfirmedBalance,
-                                 const CAmount &watchImmatureBalance) {
+void SendCoinsDialog::setBalance(const Amount balance,
+                                 const Amount unconfirmedBalance,
+                                 const Amount immatureBalance,
+                                 const Amount watchBalance,
+                                 const Amount watchUnconfirmedBalance,
+                                 const Amount watchImmatureBalance) {
     Q_UNUSED(unconfirmedBalance);
     Q_UNUSED(immatureBalance);
     Q_UNUSED(watchBalance);
@@ -545,7 +547,8 @@ void SendCoinsDialog::setBalance(const CAmount &balance,
 }
 
 void SendCoinsDialog::updateDisplayUnit() {
-    setBalance(model->getBalance(), 0, 0, 0, 0, 0);
+    setBalance(model->getBalance(), Amount(0), Amount(0), Amount(0), Amount(0),
+               Amount(0));
     ui->customFee->setDisplayUnit(model->getOptionsModel()->getDisplayUnit());
     updateMinFeeLabel();
     updateSmartFeeLabel();
@@ -597,8 +600,7 @@ void SendCoinsDialog::processSendCoinsReturn(
             msgParams.first =
                 tr("A fee higher than %1 is considered an absurdly high fee.")
                     .arg(BitcoinUnits::formatWithUnit(
-                        model->getOptionsModel()->getDisplayUnit(),
-                        maxTxFee.GetSatoshis()));
+                        model->getOptionsModel()->getDisplayUnit(), maxTxFee));
             break;
         case WalletModel::PaymentRequestExpired:
             msgParams.first = tr("Payment request expired.");
@@ -663,25 +665,27 @@ void SendCoinsDialog::updateGlobalFeeVariables() {
     if (ui->radioSmartFee->isChecked()) {
         int nConfirmTarget =
             ui->sliderSmartFee->maximum() - ui->sliderSmartFee->value() + 2;
-        payTxFee = CFeeRate(0);
+        payTxFee = CFeeRate(Amount(0));
 
         // set nMinimumTotalFee to 0 to not accidentally pay a custom fee
-        CoinControlDialog::coinControl->nMinimumTotalFee = 0;
+        CoinControlDialog::coinControl->nMinimumTotalFee = Amount(0);
 
         // show the estimated required time for confirmation
         ui->confirmationTargetLabel->setText(
             GUIUtil::formatDurationStr(
-                nConfirmTarget * Params().GetConsensus().nPowTargetSpacing) +
+                nConfirmTarget *
+                model->getChainParams().GetConsensus().nPowTargetSpacing) +
             " / " + tr("%n block(s)", "", nConfirmTarget));
     } else {
-        payTxFee = CFeeRate(ui->customFee->value());
+        payTxFee = CFeeRate(Amount(ui->customFee->value()));
 
         // if user has selected to set a minimum absolute fee, pass the value to
         // coincontrol
         // set nMinimumTotalFee to 0 in case of user has selected that the fee
         // is per KB
         CoinControlDialog::coinControl->nMinimumTotalFee =
-            ui->radioCustomAtLeast->isChecked() ? ui->customFee->value() : 0;
+            ui->radioCustomAtLeast->isChecked() ? ui->customFee->value()
+                                                : Amount(0);
     }
 }
 
@@ -718,11 +722,11 @@ void SendCoinsDialog::updateSmartFeeLabel() {
     CFeeRate feeRate =
         mempool.estimateSmartFee(nBlocksToConfirm, &estimateFoundAtBlocks);
     // not enough data => minfee
-    if (feeRate <= CFeeRate(0)) {
+    if (feeRate <= CFeeRate(Amount(0))) {
         ui->labelSmartFee->setText(
             BitcoinUnits::formatWithUnit(
                 model->getOptionsModel()->getDisplayUnit(),
-                std::max(CWallet::fallbackFee.GetFeePerK().GetSatoshis(),
+                std::max(CWallet::fallbackFee.GetFeePerK(),
                          CWallet::GetRequiredFee(1000))) +
             "/kB");
         // (Smart fee not initialized yet. This usually takes a few blocks...)
@@ -732,8 +736,7 @@ void SendCoinsDialog::updateSmartFeeLabel() {
         ui->labelSmartFee->setText(
             BitcoinUnits::formatWithUnit(
                 model->getOptionsModel()->getDisplayUnit(),
-                std::max(feeRate.GetFeePerK().GetSatoshis(),
-                         CWallet::GetRequiredFee(1000))) +
+                std::max(feeRate.GetFeePerK(), CWallet::GetRequiredFee(1000))) +
             "/kB");
         ui->labelSmartFee2->hide();
         ui->labelFeeEstimation->setText(
@@ -830,7 +833,8 @@ void SendCoinsDialog::coinControlChangeEdited(const QString &text) {
         CoinControlDialog::coinControl->destChange = CNoDestination();
         ui->labelCoinControlChangeLabel->setStyleSheet("QLabel{color:red;}");
 
-        const CTxDestination dest = DecodeDestination(text.toStdString());
+        const CTxDestination dest =
+            DecodeDestination(text.toStdString(), model->getChainParams());
 
         if (text.isEmpty()) {
             // Nothing entered

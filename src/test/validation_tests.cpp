@@ -3,13 +3,13 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "validation.h"
 #include "chainparams.h"
 #include "config.h"
 #include "consensus/consensus.h"
 #include "primitives/transaction.h"
 #include "test/test_bitcoin.h"
 #include "util.h"
+#include "validation.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -35,9 +35,9 @@ below the size of a large block. Currently, LoadExternalBlockFile has the
 buffer size for CBufferedFile set to 2 * MAX_TX_SIZE. Test with a value
 of 10 * MAX_TX_SIZE. */
 BOOST_AUTO_TEST_CASE(validation_load_external_block_file) {
-    boost::filesystem::path tmpfile_name =
+    fs::path tmpfile_name =
         pathTemp / strprintf("vlebf_test_%lu_%i", (unsigned long)GetTime(),
-                             (int)(GetRand(100000)));
+                             (int)(InsecureRandRange(100000)));
 
     FILE *fp = fopen(tmpfile_name.string().c_str(), "wb+");
 
@@ -49,10 +49,10 @@ BOOST_AUTO_TEST_CASE(validation_load_external_block_file) {
     // serialization format is:
     // message start magic, size of block, block
 
-    size_t nwritten = fwrite(chainparams.MessageStart(),
+    size_t nwritten = fwrite(std::begin(chainparams.DiskMagic()),
                              CMessageHeader::MESSAGE_START_SIZE, 1, fp);
 
-    BOOST_CHECK_EQUAL(nwritten, 1);
+    BOOST_CHECK_EQUAL(nwritten, 1UL);
 
     CTransaction empty_tx;
     size_t empty_tx_size = GetSerializeSize(empty_tx, SER_DISK, CLIENT_VERSION);

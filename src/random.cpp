@@ -14,8 +14,10 @@
 #include "util.h"             // for LogPrint()
 #include "utilstrencodings.h" // for GetTime()
 
+#include <chrono>
 #include <cstdlib>
 #include <limits>
+#include <thread>
 
 #ifndef WIN32
 #include <sys/time.h>
@@ -25,31 +27,107 @@
 #include <linux/random.h>
 #include <sys/syscall.h>
 #endif
-#ifdef HAVE_GETENTROPY
+#if defined(HAVE_GETENTROPY) ||                                                \
+    (defined(HAVE_GETENTROPY_RAND) && defined(MAC_OSX))
 #include <unistd.h>
+#endif
+#if defined(HAVE_GETENTROPY_RAND) && defined(MAC_OSX)
+#include <sys/random.h>
 #endif
 #ifdef HAVE_SYSCTL_ARND
 #include <sys/sysctl.h>
 #endif
 
+#include <mutex>
+
+#if defined(__x86_64__) || defined(__amd64__) || defined(__i386__)
+#include <cpuid.h>
+#endif
+
 #include <openssl/err.h>
 #include <openssl/rand.h>
 
-static void RandFailure() {
+[[noreturn]] static void RandFailure() {
     LogPrintf("Failed to read randomness, aborting\n");
-    abort();
+    std::abort();
 }
 
 static inline int64_t GetPerformanceCounter() {
-    int64_t nCounter = 0;
-#ifdef WIN32
-    QueryPerformanceCounter((LARGE_INTEGER *)&nCounter);
+// Read the hardware time stamp counter when available.
+// See https://en.wikipedia.org/wiki/Time_Stamp_Counter for more information.
+#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+    return __rdtsc();
+#elif !defined(_MSC_VER) && defined(__i386__)
+    uint64_t r = 0;
+    __asm__ volatile(
+        "rdtsc"
+        : "=A"(r)); // Constrain the r variable to the eax:edx pair.
+    return r;
+#elif !defined(_MSC_VER) && (defined(__x86_64__) || defined(__amd64__))
+    uint64_t r1 = 0, r2 = 0;
+    __asm__ volatile("rdtsc"
+                     : "=a"(r1),
+                       "=d"(r2)); // Constrain r1 to rax and r2 to rdx.
+    return (r2 << 32) | r1;
 #else
-    timeval t;
-    gettimeofday(&t, nullptr);
-    nCounter = t.tv_sec * 1000000LL + t.tv_usec;
+    // Fall back to using C++11 clock (usually microsecond or nanosecond
+    // precision)
+    return std::chrono::high_resolution_clock::now().time_since_epoch().count();
 #endif
-    return nCounter;
+}
+
+#if defined(__x86_64__) || defined(__amd64__) || defined(__i386__)
+static std::atomic<bool> hwrand_initialized{false};
+static bool rdrand_supported = false;
+static constexpr uint32_t CPUID_F1_ECX_RDRAND = 0x40000000;
+static void RDRandInit() {
+    uint32_t eax, ebx, ecx, edx;
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx) && (ecx & CPUID_F1_ECX_RDRAND)) {
+        LogPrintf("Using RdRand as an additional entropy source\n");
+        rdrand_supported = true;
+    }
+    hwrand_initialized.store(true);
+}
+#else
+static void RDRandInit() {}
+#endif
+
+static bool GetHWRand(uint8_t *ent32) {
+#if defined(__x86_64__) || defined(__amd64__) || defined(__i386__)
+    assert(hwrand_initialized.load(std::memory_order_relaxed));
+    if (rdrand_supported) {
+        uint8_t ok;
+// Not all assemblers support the rdrand instruction, write it in hex.
+#ifdef __i386__
+        for (int iter = 0; iter < 4; ++iter) {
+            uint32_t r1, r2;
+            __asm__ volatile(".byte 0x0f, 0xc7, 0xf0;" // rdrand %eax
+                             ".byte 0x0f, 0xc7, 0xf2;" // rdrand %edx
+                             "setc %2"
+                             : "=a"(r1), "=d"(r2), "=q"(ok)::"cc");
+            if (!ok) return false;
+            WriteLE32(ent32 + 8 * iter, r1);
+            WriteLE32(ent32 + 8 * iter + 4, r2);
+        }
+#else
+        uint64_t r1, r2, r3, r4;
+        __asm__ volatile(".byte 0x48, 0x0f, 0xc7, 0xf0, " // rdrand %rax
+                         "0x48, 0x0f, 0xc7, 0xf3, "       // rdrand %rbx
+                         "0x48, 0x0f, 0xc7, 0xf1, "       // rdrand %rcx
+                         "0x48, 0x0f, 0xc7, 0xf2; "       // rdrand %rdx
+                         "setc %4"
+                         : "=a"(r1), "=b"(r2), "=c"(r3), "=d"(r4),
+                           "=q"(ok)::"cc");
+        if (!ok) return false;
+        WriteLE64(ent32, r1);
+        WriteLE64(ent32 + 8, r2);
+        WriteLE64(ent32 + 16, r3);
+        WriteLE64(ent32 + 24, r4);
+#endif
+        return true;
+    }
+#endif
+    return false;
 }
 
 void RandAddSeed() {
@@ -90,7 +168,7 @@ static void RandAddSeedPerfmon() {
     if (ret == ERROR_SUCCESS) {
         RAND_add(vData.data(), nSize, nSize / 100.0);
         memory_cleanse(vData.data(), nSize);
-        LogPrint("rand", "%s: %lu bytes\n", __func__, nSize);
+        LogPrint(BCLog::RAND, "%s: %lu bytes\n", __func__, nSize);
     } else {
         // Warn only once
         static bool warned = false;
@@ -109,7 +187,7 @@ static void RandAddSeedPerfmon() {
  *Fallback: get 32 bytes of system entropy from /dev/urandom. The most
  *compatible way to get cryptographic randomness on UNIX-ish platforms.
  */
-void GetDevURandom(unsigned char *ent32) {
+void GetDevURandom(uint8_t *ent32) {
     int f = open("/dev/urandom", O_RDONLY);
     if (f == -1) {
         RandFailure();
@@ -118,6 +196,7 @@ void GetDevURandom(unsigned char *ent32) {
     do {
         ssize_t n = read(f, ent32 + have, NUM_OS_RANDOM_BYTES - have);
         if (n <= 0 || n + have > NUM_OS_RANDOM_BYTES) {
+            close(f);
             RandFailure();
         }
         have += n;
@@ -159,13 +238,24 @@ void GetOSRand(uint8_t *ent32) {
             RandFailure();
         }
     }
-#elif defined(HAVE_GETENTROPY)
+#elif defined(HAVE_GETENTROPY) && defined(__OpenBSD__)
     /* On OpenBSD this can return up to 256 bytes of entropy, will return an
      * error if more are requested.
      * The call cannot return less than the requested number of bytes.
+       getentropy is explicitly limited to openbsd here, as a similar (but not
+       the same) function may exist on other platforms via glibc.
      */
     if (getentropy(ent32, NUM_OS_RANDOM_BYTES) != 0) {
         RandFailure();
+    }
+#elif defined(HAVE_GETENTROPY_RAND) && defined(MAC_OSX)
+    // We need a fallback for OSX < 10.12
+    if (&getentropy != NULL) {
+        if (getentropy(ent32, NUM_OS_RANDOM_BYTES) != 0) {
+            RandFailure();
+        }
+    } else {
+        GetDevURandom(ent32);
     }
 #elif defined(HAVE_SYSCTL_ARND)
     /* FreeBSD and similar. It is possible for the call to return less
@@ -194,6 +284,41 @@ void GetRandBytes(uint8_t *buf, int num) {
     }
 }
 
+static void AddDataToRng(void *data, size_t len);
+
+void RandAddSeedSleep() {
+    int64_t nPerfCounter1 = GetPerformanceCounter();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    int64_t nPerfCounter2 = GetPerformanceCounter();
+
+    // Combine with and update state
+    AddDataToRng(&nPerfCounter1, sizeof(nPerfCounter1));
+    AddDataToRng(&nPerfCounter2, sizeof(nPerfCounter2));
+
+    memory_cleanse(&nPerfCounter1, sizeof(nPerfCounter1));
+    memory_cleanse(&nPerfCounter2, sizeof(nPerfCounter2));
+}
+
+static std::mutex cs_rng_state;
+static uint8_t rng_state[32] = {0};
+static uint64_t rng_counter = 0;
+
+static void AddDataToRng(void *data, size_t len) {
+    CSHA512 hasher;
+    hasher.Write((const uint8_t *)&len, sizeof(len));
+    hasher.Write((const uint8_t *)data, len);
+    uint8_t buf[64];
+    {
+        std::unique_lock<std::mutex> lock(cs_rng_state);
+        hasher.Write(rng_state, sizeof(rng_state));
+        hasher.Write((const uint8_t *)&rng_counter, sizeof(rng_counter));
+        ++rng_counter;
+        hasher.Finalize(buf);
+        memcpy(rng_state, buf + 32, 32);
+    }
+    memory_cleanse(buf, 64);
+}
+
 void GetStrongRandBytes(uint8_t *out, int num) {
     assert(num <= 32);
     CSHA512 hasher;
@@ -208,8 +333,22 @@ void GetStrongRandBytes(uint8_t *out, int num) {
     GetOSRand(buf);
     hasher.Write(buf, 32);
 
+    // Third source: HW RNG, if available.
+    if (GetHWRand(buf)) {
+        hasher.Write(buf, 32);
+    }
+
+    // Combine with and update state
+    {
+        std::unique_lock<std::mutex> lock(cs_rng_state);
+        hasher.Write(rng_state, sizeof(rng_state));
+        hasher.Write((const uint8_t *)&rng_counter, sizeof(rng_counter));
+        ++rng_counter;
+        hasher.Finalize(buf);
+        memcpy(rng_state, buf + 32, 32);
+    }
+
     // Produce output
-    hasher.Finalize(buf);
     memcpy(out, buf, num);
     memory_cleanse(buf, 64);
 }
@@ -245,12 +384,32 @@ void FastRandomContext::RandomSeed() {
     requires_seed = false;
 }
 
+uint256 FastRandomContext::rand256() {
+    if (bytebuf_size < 32) {
+        FillByteBuffer();
+    }
+    uint256 ret;
+    memcpy(ret.begin(), bytebuf + 64 - bytebuf_size, 32);
+    bytebuf_size -= 32;
+    return ret;
+}
+
+std::vector<uint8_t> FastRandomContext::randbytes(size_t len) {
+    std::vector<uint8_t> ret(len);
+    if (len > 0) {
+        rng.Output(&ret[0], len);
+    }
+    return ret;
+}
+
 FastRandomContext::FastRandomContext(const uint256 &seed)
     : requires_seed(false), bytebuf_size(0), bitbuf_size(0) {
     rng.SetKey(seed.begin(), 32);
 }
 
 bool Random_SanityCheck() {
+    uint64_t start = GetPerformanceCounter();
+
     /* This does not measure the quality of randomness, but it does test that
      * OSRandom() overwrites all 32 bytes of the output given a maximum number
      * of tries.
@@ -280,7 +439,21 @@ bool Random_SanityCheck() {
         tries += 1;
     } while (num_overwritten < NUM_OS_RANDOM_BYTES && tries < MAX_TRIES);
     /* If this failed, bailed out after too many tries */
-    return (num_overwritten == NUM_OS_RANDOM_BYTES);
+    if (num_overwritten != NUM_OS_RANDOM_BYTES) {
+        return false;
+    }
+
+    // Check that GetPerformanceCounter increases at least during a GetOSRand()
+    // call + 1ms sleep.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    uint64_t stop = GetPerformanceCounter();
+    if (stop == start) return false;
+
+    // We called GetPerformanceCounter. Use it as entropy.
+    RAND_add((const uint8_t *)&start, sizeof(start), 1);
+    RAND_add((const uint8_t *)&stop, sizeof(stop), 1);
+
+    return true;
 }
 
 FastRandomContext::FastRandomContext(bool fDeterministic)
@@ -290,4 +463,8 @@ FastRandomContext::FastRandomContext(bool fDeterministic)
     }
     uint256 seed;
     rng.SetKey(seed.begin(), 32);
+}
+
+void RandomInit() {
+    RDRandInit();
 }

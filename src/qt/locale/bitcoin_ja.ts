@@ -2988,7 +2988,7 @@
     </message>
 </context>
 <context>
-    <name>bitcoin-core</name>
+    <name>bitcoin-abc</name>
     <message>
         <source>Options:</source>
         <translation>オプション:</translation>
@@ -3058,7 +3058,7 @@
         <translation>HTTPサーバを開始できませんでした。詳細はデバッグログをご確認ください。</translation>
     </message>
     <message>
-        <source>Bitcoin Core</source>
+        <source>Bitcoin ABC</source>
         <translation>Bitcoin のコア</translation>
     </message>
     <message>
@@ -3809,10 +3809,6 @@
     <message>
         <source>Relay non-P2SH multisig (default: %u)</source>
         <translation>P2SHでないマルチシグトランザクションをリレーする (初期値: %u)</translation>
-    </message>
-    <message>
-        <source>Send transactions with full-RBF opt-in enabled (default: %u)</source>
-        <translation>full-RBF opt-in を利用してトランザクションを送信する (初期値: %u)</translation>
     </message>
     <message>
         <source>Set key pool size to &lt;n&gt; (default: %u)</source>

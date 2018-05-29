@@ -38,7 +38,7 @@ public:
       @note Type filter takes a bit field created with TYPE() or ALL_TYPES
      */
     void setTypeFilter(quint32 modes);
-    void setMinAmount(const CAmount &minimum);
+    void setMinAmount(const Amount minimum);
     void setWatchOnlyFilter(WatchOnlyFilter filter);
 
     /** Set maximum number of rows returned, -1 if unlimited. */
@@ -47,11 +47,11 @@ public:
     /** Set whether to show conflicted transactions. */
     void setShowInactive(bool showInactive);
 
-    int rowCount(const QModelIndex &parent = QModelIndex()) const;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
 
 protected:
     bool filterAcceptsRow(int source_row,
-                          const QModelIndex &source_parent) const;
+                          const QModelIndex &source_parent) const override;
 
 private:
     QDateTime dateFrom;
@@ -59,7 +59,7 @@ private:
     QString addrPrefix;
     quint32 typeFilter;
     WatchOnlyFilter watchOnlyFilter;
-    CAmount minAmount;
+    Amount minAmount;
     int limitRows;
     bool showInactive;
 };

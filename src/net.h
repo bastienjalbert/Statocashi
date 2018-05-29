@@ -13,6 +13,7 @@
 #include "bloom.h"
 #include "chainparams.h"
 #include "compat.h"
+#include "fs.h"
 #include "hash.h"
 #include "limitedmap.h"
 #include "netaddress.h"
@@ -35,7 +36,6 @@
 #include <arpa/inet.h>
 #endif
 
-#include <boost/filesystem/path.hpp>
 #include <boost/signals2/signal.hpp>
 
 class CAddrMan;
@@ -59,9 +59,6 @@ static const int FEELER_INTERVAL = 120;
 static const unsigned int MAX_INV_SZ = 50000;
 /** The maximum number of new addresses to accumulate before announcing. */
 static const unsigned int MAX_ADDR_TO_SEND = 1000;
-/** Maximum length of incoming protocol messages (no message over 4 MB is
- * currently acceptable). */
-static const unsigned int MAX_PROTOCOL_MESSAGE_LENGTH = 32 * 1000 * 1000;
 /** Maximum length of strSubVer in `version` message */
 static const unsigned int MAX_SUBVERSION_LENGTH = 256;
 /** Maximum number of automatic outgoing nodes */
@@ -96,8 +93,7 @@ static const bool DEFAULT_FORCEDNSSEED = true;
 static const size_t DEFAULT_MAXRECEIVEBUFFER = 5 * 1000;
 static const size_t DEFAULT_MAXSENDBUFFER = 1 * 1000;
 
-static const ServiceFlags REQUIRED_SERVICES =
-    ServiceFlags(NODE_NETWORK | NODE_BITCOIN_CASH);
+static const ServiceFlags REQUIRED_SERVICES = ServiceFlags(NODE_NETWORK);
 
 // Default 24-hour ban.
 // NOTE: When adjusting this, update rpcnet:setban's help ("24h")
@@ -517,7 +513,6 @@ public:
     uint64_t nRecvBytes;
     mapMsgCmdSize mapRecvBytesPerMsgCmd;
     bool fWhitelisted;
-    bool fUsesCashMagic;
     double dPingTime;
     double dPingWait;
     double dMinPing;
@@ -538,16 +533,16 @@ public:
     CDataStream hdrbuf;
     // Complete header.
     CMessageHeader hdr;
-    unsigned int nHdrPos;
+    uint32_t nHdrPos;
 
     // Received message data.
     CDataStream vRecv;
-    unsigned int nDataPos;
+    uint32_t nDataPos;
 
     // Time (in microseconds) of message receipt.
     int64_t nTime;
 
-    CNetMessage(const CMessageHeader::MessageStartChars &pchMessageStartIn,
+    CNetMessage(const CMessageHeader::MessageMagic &pchMessageStartIn,
                 int nTypeIn, int nVersionIn)
         : hdrbuf(nTypeIn, nVersionIn), hdr(pchMessageStartIn),
           vRecv(nTypeIn, nVersionIn) {
@@ -573,8 +568,8 @@ public:
         vRecv.SetVersion(nVersionIn);
     }
 
-    int readHeader(const char *pch, unsigned int nBytes);
-    int readData(const char *pch, unsigned int nBytes);
+    int readHeader(const Config &config, const char *pch, uint32_t nBytes);
+    int readData(const char *pch, uint32_t nBytes);
 };
 
 /** Information about a peer */
@@ -584,6 +579,7 @@ class CNode {
 public:
     // socket
     std::atomic<ServiceFlags> nServices;
+    // Services expected from a peer, otherwise it will be disconnected
     ServiceFlags nServicesExpected;
     SOCKET hSocket;
     // Total size of all vSendMsg entries.
@@ -703,8 +699,6 @@ public:
     std::atomic<int64_t> nMinPingUsecTime;
     // Whether a ping is requested.
     std::atomic<bool> fPingQueued;
-    // Whether the node uses the bitcoin cash magic to communicate.
-    std::atomic<bool> fUsesCashMagic;
     // Minimum fee rate with which to filter inv's to this node
     Amount minFeeFilter;
     CCriticalSection cs_feeFilter;
@@ -747,18 +741,13 @@ public:
         return nRefCount;
     }
 
-    bool ReceiveMsgBytes(const char *pch, unsigned int nBytes, bool &complete);
+    bool ReceiveMsgBytes(const Config &config, const char *pch, uint32_t nBytes,
+                         bool &complete);
 
     void SetRecvVersion(int nVersionIn) { nRecvVersion = nVersionIn; }
     int GetRecvVersion() { return nRecvVersion; }
     void SetSendVersion(int nVersionIn);
     int GetSendVersion() const;
-
-    const CMessageHeader::MessageStartChars &
-    GetMagic(const CChainParams &params) const {
-        return fUsesCashMagic ? params.CashMessageStart()
-                              : params.MessageStart();
-    }
 
     CService GetAddrLocal() const;
     //! May not be called more than once

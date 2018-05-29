@@ -10,6 +10,7 @@
 
 #include "key.h"
 #include "script/script.h"
+#include "test/jsonutil.h"
 #include "test/test_bitcoin.h"
 #include "uint256.h"
 #include "util.h"
@@ -18,8 +19,6 @@
 #include <boost/test/unit_test.hpp>
 
 #include <univalue.h>
-
-extern UniValue read_json(const std::string &jsondata);
 
 BOOST_FIXTURE_TEST_SUITE(base58_tests, BasicTestingSetup)
 
@@ -163,7 +162,7 @@ BOOST_AUTO_TEST_CASE(base58_keys_valid_parse) {
                                 "key mismatch:" + strTest);
 
             // Private key must be invalid public key
-            destination = DecodeDestination(exp_base58string);
+            destination = DecodeLegacyAddr(exp_base58string, Params());
             BOOST_CHECK_MESSAGE(!IsValidDestination(destination),
                                 "IsValid privkey as pubkey:" + strTest);
         } else {
@@ -171,7 +170,7 @@ BOOST_AUTO_TEST_CASE(base58_keys_valid_parse) {
             std::string exp_addrType =
                 find_value(metadata, "addrType").get_str();
             // Must be valid public key
-            destination = DecodeDestination(exp_base58string);
+            destination = DecodeLegacyAddr(exp_base58string, Params());
             BOOST_CHECK_MESSAGE(IsValidDestination(destination),
                                 "!IsValid:" + strTest);
             BOOST_CHECK_MESSAGE((boost::get<CScriptID>(&destination) !=
@@ -236,7 +235,7 @@ BOOST_AUTO_TEST_CASE(base58_keys_valid_gen) {
                 BOOST_ERROR("Bad addrtype: " << strTest);
                 continue;
             }
-            std::string address = EncodeDestination(dest);
+            std::string address = EncodeLegacyAddr(dest, Params());
             BOOST_CHECK_MESSAGE(address == exp_base58string,
                                 "mismatch: " + strTest);
         }
@@ -267,7 +266,7 @@ BOOST_AUTO_TEST_CASE(base58_keys_invalid) {
         std::string exp_base58string = test[0].get_str();
 
         // must be invalid as public and as private key
-        destination = DecodeDestination(exp_base58string);
+        destination = DecodeLegacyAddr(exp_base58string, Params());
         BOOST_CHECK_MESSAGE(!IsValidDestination(destination),
                             "IsValid pubkey:" + strTest);
         secret.SetString(exp_base58string);

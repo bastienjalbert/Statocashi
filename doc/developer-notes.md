@@ -15,38 +15,85 @@ to clean up the patch automatically before submitting a pull request.
   - No indentation for `public`/`protected`/`private` or for `namespace`.
   - No extra spaces inside parenthesis; don't do ( this )
   - No space after function names; one space after `if`, `for` and `while`.
-  - If an `if` only has a single-statement then-clause, it can appear
-    on the same line as the if, without braces. In every other case,
-    braces are required, and the then and else clauses must appear
-    correctly indented on a new line.
+  - Always add braces for block statements (e.g. `if`, `for`, `while`).
   - `++i` is preferred over `i++`.
+  - Use CamelCase for functions/methods, and lowerCamelCase for variables.
+    - GLOBAL_CONSTANTS should use UPPER_SNAKE_CASE.
+    - namespaces should use lower_snake_case.
+  - Function names should generally start with an English command-form verb 
+    (e.g. `ValidateTransaction`, `AddTransactionToMempool`, `ConnectBlock`)
+  - Variable names should generally be nouns or past/future tense verbs.
+    (e.g. `canDoThing`, `signatureOperations`, `didThing`)
+  - Avoid using globals, remove existing globals whenever possible.
+  - Class member variable names should be prepended with `m_`
+  - DO choose easily readable identifier names. 
+  - DO favor readability over brevity.
+  - DO NOT use Hungarian notation.
+  - DO NOT use abbreviations or contractions within identifiers. 
+    - WRONG: mempool
+    - RIGHT: MemoryPool
+    - WRONG: ChangeDir
+    - RIGHT: ChangeDirectory
+  - DO NOT use obscure acronyms, DO uppercase any acronyms.
+  - FINALLY, do not migrate existing code unless refactoring. It makes
+    forwarding-porting from Bitcoin Core more difficult.
 
-Block style example:
+The naming convention roughly mirrors [Microsoft Naming Conventions](https://docs.microsoft.com/en-us/dotnet/standard/design-guidelines/general-naming-conventions)
+
+C++ Coding Standards should strive to follow the [LLVM Coding Standards](https://llvm.org/docs/CodingStandards.html)
+
+Code style example:
 ```c++
-namespace foo
-{
-class Class
-{
-    bool Function(const std::string& s, int n)
-    {
-        // Comment summarising what this section of code does
+// namespaces should be lower_snake_case
+namespace foo_bar_bob {
+
+/**
+ * Class is used for doing classy things.  All classes should
+ * have a doxygen comment describing their PURPOSE.  That is to say,
+ * why they exist.  Functional details can be determined from the code.
+ * @see PerformTask()
+ */
+class Class {
+private:
+    //! memberVariable's name should be lowerCamelCase, and be a noun.
+    int m_memberVariable;
+
+public:
+    /**
+    * The documentation before a function or class method should follow Doxygen
+    * spec. The name of the function should start with an english verb which 
+    * indicates the intended purpose of this code.
+    * 
+    * The  function name should be should be CamelCase.
+    * 
+    * @param[in] s    A description
+    * @param[in] n    Another argument description
+    * @pre Precondition for function...
+    */
+    bool PerformTask(const std::string& s, int n) {
+        // Use lowerChamelCase for local variables.
+        bool didMore = false;
+
+        // Comment summarizing the intended purpose of this section of code
         for (int i = 0; i < n; ++i) {
-            // When something fails, return early
-            if (!Something()) return false;
+            if (!DidSomethingFail()) {
+              return false;
+            }
             ...
-            if (SomethingElse()) {
+            if (IsSomethingElse()) {
                 DoMore();
+                didMore = true;
             } else {
                 DoLess();
             }
         }
 
-        // Success return is usually at the end
-        return true;
+        return didMore;
     }
 }
 }
 ```
+
 
 Doxygen comments
 -----------------
@@ -107,6 +154,13 @@ Not OK (used plenty in the current source, but not picked up):
 A full list of comment syntaxes picked up by doxygen can be found at http://www.stack.nl/~dimitri/doxygen/manual/docblocks.html,
 but if possible use one of the above styles.
 
+To build doxygen locally to test changes to the Doxyfile or visualize your comments before landing changes:
+```
+# at the project root, call:
+doxygen doc/Doxyfile
+# output goes to doc/doxygen/html/
+```
+
 Development tips and tricks
 ---------------------------
 
@@ -126,13 +180,48 @@ on all categories (and give you a very large debug.log file).
 The Qt code routes qDebug() output to debug.log under category "qt": run with -debug=qt
 to see it.
 
+**running and debugging tests**
+
+Unit tests are run via `make check`
+For running functional tests, see `/test/README.md`
+
+Simple example of debugging unit tests with GDB on Linux:
+```
+cd /build/src/test
+gdb test_bitcoin
+break interpreter.cpp:295  # No path is necessary, just the file name and line number
+run
+# GDB hits the breakpoint
+p/x opcode  # print the value of the variable (in this case, opcode) in hex
+c           # continue
+```
+
+Simple example of debugging unit tests with LLDB (OSX or Linux):
+```
+cd /build/src/test
+lldb -- test_bitcoin
+break set --file interpreter.cpp --line 295
+run
+```
+
+**writing script integration tests**
+
+Script integration tests are built using `src/test/script_tests.cpp`:
+
+1. Uncomment the line with `#define UPDATE_JSON_TESTS`
+2. Add a new TestBuilder to the `script_build` test to cover your test case.
+3. `make && ./src/test/test_bitcoin --run_test=script_tests`
+4. Copy your newly generated test JSON from `<build-dir>/src/script_tests.json.gen` to `src/test/data/script_tests.json`.
+
+Please commit your TestBuilder along with your generated test JSON and cleanup the uncommented #define before code review.
+
 **testnet and regtest modes**
 
 Run with the -testnet option to run with "play bitcoins" on the test network, if you
 are testing multi-machine code that needs to operate across the internet.
 
 If you are testing something that can run on one machine, run with the -regtest option.
-In regression test mode, blocks can be created on-demand; see qa/rpc-tests/ for tests
+In regression test mode, blocks can be created on-demand; see test/functional/ for tests
 that run in -regtest mode.
 
 **DEBUG_LOCKORDER**
@@ -228,23 +317,6 @@ Development guidelines
 A few non-style-related recommendations for developers, as well as points to
 pay attention to for reviewers of Bitcoin Core code.
 
-General Bitcoin Core
-----------------------
-
-- New features should be exposed on RPC first, then can be made available in the GUI
-
-  - *Rationale*: RPC allows for better automatic testing. The test suite for
-    the GUI is very limited
-
-- Make sure pull requests pass Travis CI before merging
-
-  - *Rationale*: Makes sure that they pass thorough testing, and that the tester will keep passing
-     on the master branch. Otherwise all new pull requests will start failing the tests, resulting in
-     confusion and mayhem
-
-  - *Explanation*: If the test suite is to be updated for a change, this has to
-    be done first
-
 Wallet
 -------
 
@@ -252,7 +324,7 @@ Wallet
 
   - *Rationale*: In RPC code that conditionally uses the wallet (such as
     `validateaddress`) it is easy to forget that global pointer `pwalletMain`
-    can be NULL. See `qa/rpc-tests/disablewallet.py` for functional tests
+    can be NULL. See `test/functional/disablewallet.py` for functional tests
     exercising the API with `-disablewallet`
 
 - Include `db_cxx.h` (BerkeleyDB header) only when `ENABLE_WALLET` is set
@@ -321,11 +393,6 @@ C++ data structures
 Strings and formatting
 ------------------------
 
-- Be careful of `LogPrint` versus `LogPrintf`. `LogPrint` takes a `category` argument, `LogPrintf` does not.
-
-  - *Rationale*: Confusion of these can result in runtime exceptions due to
-    formatting mismatch, and it is easy to get wrong because of subtly similar naming
-
 - Use `std::string`, avoid C string manipulation functions
 
   - *Rationale*: C++ string handling is marginally safer, less scope for
@@ -336,10 +403,6 @@ Strings and formatting
 
   - *Rationale*: These functions do overflow checking, and avoid pesky locale issues
 
-- For `strprintf`, `LogPrint`, `LogPrintf` formatting characters don't need size specifiers
-
-  - *Rationale*: Bitcoin Core uses tinyformat, which is type safe. Leave them out to avoid confusion
-
 Variable names
 --------------
 
@@ -347,24 +410,6 @@ The shadowing warning (`-Wshadow`) is enabled by default. It prevents issues ris
 from using a different variable with the same name.
 
 Please name variables so that their names do not shadow variables defined in the source code.
-
-E.g. in member initializers, prepend `_` to the argument name shadowing the
-member name:
-
-```c++
-class AddressBookPage
-{
-    Mode mode;
-}
-
-AddressBookPage::AddressBookPage(Mode _mode) :
-      mode(_mode)
-...
-```
-
-When using nested cycles, do not name the inner cycle variable the same as in
-upper cycle etc.
-
 
 Threads and synchronization
 ----------------------------
@@ -450,6 +495,12 @@ Current subtrees include:
 
 Git and GitHub tips
 ---------------------
+
+- Github is not typically the source of truth for pull requests.  See CONTRIBUTING.md for instructions
+  on setting up your repo correctly.
+
+- Similarly, your git remote origin should be set to: `ssh://vcs@reviews.bitcoinabc.org:2221/source/bitcoin-abc.git`
+  instead of github.com.  See CONTRIBUTING.md for details.
 
 - For resolving merge/rebase conflicts, it can be useful to enable diff3 style using
   `git config merge.conflictstyle diff3`. Instead of

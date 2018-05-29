@@ -3,11 +3,12 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "bench.h"
+#include "chainparams.h"
 #include "wallet/wallet.h"
 
 #include <set>
 
-static void addCoin(const CAmount &nValue, const CWallet &wallet,
+static void addCoin(const Amount nValue, const CWallet &wallet,
                     std::vector<COutput> &vCoins) {
     int nInput = 0;
 
@@ -20,7 +21,8 @@ static void addCoin(const CAmount &nValue, const CWallet &wallet,
     CWalletTx *wtx = new CWalletTx(&wallet, MakeTransactionRef(std::move(tx)));
 
     int nAge = 6 * 24;
-    COutput output(wtx, nInput, nAge, true, true);
+    COutput output(wtx, nInput, nAge, true /* spendable */, true /* solvable */,
+                   true /* safe */);
     vCoins.push_back(output);
 }
 
@@ -32,7 +34,7 @@ static void addCoin(const CAmount &nValue, const CWallet &wallet,
 // either for measurements."
 // (https://github.com/bitcoin/bitcoin/issues/7883#issuecomment-224807484)
 static void CoinSelection(benchmark::State &state) {
-    const CWallet wallet;
+    const CWallet wallet(Params());
     std::vector<COutput> vCoins;
     LOCK(wallet.cs_wallet);
 
@@ -46,13 +48,13 @@ static void CoinSelection(benchmark::State &state) {
 
         // Add coins.
         for (int i = 0; i < 1000; i++)
-            addCoin(1000 * COIN.GetSatoshis(), wallet, vCoins);
-        addCoin(3 * COIN.GetSatoshis(), wallet, vCoins);
+            addCoin(1000 * COIN, wallet, vCoins);
+        addCoin(3 * COIN, wallet, vCoins);
 
         std::set<std::pair<const CWalletTx *, unsigned int>> setCoinsRet;
-        CAmount nValueRet;
-        bool success = wallet.SelectCoinsMinConf(
-            1003 * COIN.GetSatoshis(), 1, 6, 0, vCoins, setCoinsRet, nValueRet);
+        Amount nValueRet;
+        bool success = wallet.SelectCoinsMinConf(1003 * COIN, 1, 6, 0, vCoins,
+                                                 setCoinsRet, nValueRet);
         assert(success);
         assert(nValueRet == 1003 * COIN);
         assert(setCoinsRet.size() == 2);

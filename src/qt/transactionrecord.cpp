@@ -4,8 +4,8 @@
 
 #include "transactionrecord.h"
 
-#include "base58.h"
 #include "consensus/consensus.h"
+#include "dstencode.h"
 #include "timedata.h"
 #include "validation.h"
 #include "wallet/finaltx.h"
@@ -17,12 +17,8 @@
  * Return positive answer if transaction should be shown in list.
  */
 bool TransactionRecord::showTransaction(const CWalletTx &wtx) {
-    if (wtx.IsCoinBase()) {
-        // Ensures we show generated coins / mined transactions at depth 1
-        if (!wtx.IsInMainChain()) {
-            return false;
-        }
-    }
+    // There are currently no cases where we hide transactions, but we may want
+    // to use this in the future for things like RBF.
     return true;
 }
 
@@ -34,24 +30,24 @@ TransactionRecord::decomposeTransaction(const CWallet *wallet,
                                         const CWalletTx &wtx) {
     QList<TransactionRecord> parts;
     int64_t nTime = wtx.GetTxTime();
-    CAmount nCredit = wtx.GetCredit(ISMINE_ALL);
-    CAmount nDebit = wtx.GetDebit(ISMINE_ALL);
-    CAmount nNet = nCredit - nDebit;
+    Amount nCredit = wtx.GetCredit(ISMINE_ALL);
+    Amount nDebit = wtx.GetDebit(ISMINE_ALL);
+    Amount nNet = nCredit - nDebit;
     uint256 hash = wtx.GetId();
     std::map<std::string, std::string> mapValue = wtx.mapValue;
 
-    if (nNet > 0 || wtx.IsCoinBase()) {
+    if (nNet > Amount(0) || wtx.IsCoinBase()) {
         //
         // Credit
         //
-        for (unsigned int i = 0; i < wtx.tx->vout.size(); i++) {
+        for (size_t i = 0; i < wtx.tx->vout.size(); i++) {
             const CTxOut &txout = wtx.tx->vout[i];
             isminetype mine = wallet->IsMine(txout);
             if (mine) {
                 TransactionRecord sub(hash, nTime);
                 CTxDestination address;
                 sub.idx = i; // vout index
-                sub.credit = txout.nValue.GetSatoshis();
+                sub.credit = txout.nValue;
                 sub.involvesWatchAddress = mine & ISMINE_WATCH_ONLY;
                 if (ExtractDestination(txout.scriptPubKey, address) &&
                     IsMine(*wallet, address)) {
@@ -90,11 +86,11 @@ TransactionRecord::decomposeTransaction(const CWallet *wallet,
 
         if (fAllFromMe && fAllToMe) {
             // Payment to self
-            CAmount nChange = wtx.GetChange();
+            Amount nChange = wtx.GetChange();
 
-            parts.append(
-                TransactionRecord(hash, nTime, TransactionRecord::SendToSelf,
-                                  "", -(nDebit - nChange), nCredit - nChange));
+            parts.append(TransactionRecord(
+                hash, nTime, TransactionRecord::SendToSelf, "",
+                -1 * (nDebit - nChange), (nCredit - nChange)));
             // maybe pass to TransactionRecord as constructor argument
             parts.last().involvesWatchAddress = involvesWatchAddress;
         } else if (fAllFromMe) {
@@ -103,7 +99,7 @@ TransactionRecord::decomposeTransaction(const CWallet *wallet,
             //
             Amount nTxFee = nDebit - wtx.tx->GetValueOut();
 
-            for (unsigned int nOut = 0; nOut < wtx.tx->vout.size(); nOut++) {
+            for (size_t nOut = 0; nOut < wtx.tx->vout.size(); nOut++) {
                 const CTxOut &txout = wtx.tx->vout[nOut];
                 TransactionRecord sub(hash, nTime);
                 sub.idx = nOut;
@@ -126,13 +122,13 @@ TransactionRecord::decomposeTransaction(const CWallet *wallet,
                     sub.address = mapValue["to"];
                 }
 
-                CAmount nValue = txout.nValue.GetSatoshis();
+                Amount nValue = txout.nValue;
                 /* Add fee to first output */
-                if (nTxFee > 0) {
-                    nValue += nTxFee.GetSatoshis();
-                    nTxFee = 0;
+                if (nTxFee > Amount(0)) {
+                    nValue += nTxFee;
+                    nTxFee = Amount(0);
                 }
-                sub.debit = -nValue;
+                sub.debit = -1 * nValue;
 
                 parts.append(sub);
             }
@@ -141,7 +137,7 @@ TransactionRecord::decomposeTransaction(const CWallet *wallet,
             // Mixed debit transaction, can't break down payees
             //
             parts.append(TransactionRecord(
-                hash, nTime, TransactionRecord::Other, "", nNet, 0));
+                hash, nTime, TransactionRecord::Other, "", nNet, Amount(0)));
             parts.last().involvesWatchAddress = involvesWatchAddress;
         }
     }

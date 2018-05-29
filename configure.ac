@@ -1,11 +1,11 @@
 dnl require autoconf 2.60 (AS_ECHO/AS_ECHO_N)
 AC_PREREQ([2.60])
 define(_CLIENT_VERSION_MAJOR, 0)
-define(_CLIENT_VERSION_MINOR, 16)
-define(_CLIENT_VERSION_REVISION, 0)
+define(_CLIENT_VERSION_MINOR, 17)
+define(_CLIENT_VERSION_REVISION, 2)
 define(_CLIENT_VERSION_BUILD, 0)
 define(_CLIENT_VERSION_IS_RELEASE, true)
-define(_COPYRIGHT_YEAR, 2017)
+define(_COPYRIGHT_YEAR, 2018)
 define(_COPYRIGHT_HOLDERS,[The %s developers])
 define(_COPYRIGHT_HOLDERS_SUBSTITUTION,[[Bitcoin]])
 AC_INIT([Bitcoin ABC],[_CLIENT_VERSION_MAJOR._CLIENT_VERSION_MINOR._CLIENT_VERSION_REVISION],[https://github.com/Bitcoin-ABC/bitcoin-abc/issues],[bitcoin-abc],[https://bitcoinabc.org/])
@@ -125,10 +125,10 @@ AC_ARG_ENABLE(bench,
     [use_bench=$enableval],
     [use_bench=yes])
 
-AC_ARG_ENABLE([extended-rpc-tests],
-    AS_HELP_STRING([--enable-extended-rpc-tests],[enable expensive RPC tests when using lcov (default no)]),
-    [use_extended_rpc_tests=$enableval],
-    [use_extended_rpc_tests=no])
+AC_ARG_ENABLE([extended-functional-tests],
+    AS_HELP_STRING([--enable-extended-functional-tests],[enable expensive functional tests when using lcov (default no)]),
+    [use_extended_functional_tests=$enableval],
+    [use_extended_functional_tests=no])
 
 AC_ARG_WITH([qrencode],
   [AS_HELP_STRING([--with-qrencode],
@@ -165,6 +165,16 @@ AC_ARG_ENABLE([glibc-back-compat],
   [enable backwards compatibility with glibc])],
   [use_glibc_compat=$enableval],
   [use_glibc_compat=no])
+
+AC_ARG_ENABLE([asm],
+  [AS_HELP_STRING([--enable-asm],
+  [Enable assembly routines (default is yes)])],
+  [use_asm=$enableval],
+  [use_asm=yes])
+
+if test "x$use_asm" = xyes; then
+  AC_DEFINE(USE_ASM, 1, [Define this symbol to build in assembly routines])
+fi
 
 AC_ARG_WITH([system-univalue],
   [AS_HELP_STRING([--with-system-univalue],
@@ -225,39 +235,59 @@ AC_LANG_PUSH([C++])
 AX_CHECK_COMPILE_FLAG([-Werror],[CXXFLAG_WERROR="-Werror"],[CXXFLAG_WERROR=""])
 
 if test "x$enable_asan" = xyes; then
-	case $host in
-  	*mingw*)
-		AC_MSG_ERROR("Windows builds cannot use ASAN")
-		;;
-	esac
 	enable_debug=yes
-	CFLAGS="$CFLAGS -fsanitize=address -fno-omit-frame-pointer"
-	CXXFLAGS="$CXXFLAGS -fsanitize=address -fno-omit-frame-pointer"
-	LDFLAGS="$LDFLAGS -fsanitize=address"
+  asan_failed=no
+  AX_CHECK_COMPILE_FLAG([-fsanitize=address],
+    [CXXFLAGS="$CXXFLAGS -fsanitize=address"],
+    [asan_failed=yes])
+  AX_CHECK_LINK_FLAG([-fsanitize=address],
+    [LDFLAGS="$LDFLAGS -fsanitize=address"],
+    [asan_failed=yes])
+  AX_CHECK_COMPILE_FLAG([-fno-omit-frame-pointer],
+    [CXXFLAGS="$CXXFLAGS -fno-omit-frame-pointer"],
+    [asan_failed=yes])
+
+  if test "x$asan_failed" = xyes; then
+    AC_MSG_ERROR("ASAN is not supported")
+  fi
+  # fix linkage in MacOs
+  [LIBTOOL_APP_LDFLAGS="$LIBTOOL_APP_LDFLAGS -fsanitize=address"],
 fi
 
 if test "x$enable_tsan" = xyes; then
-	case $host in
-  	*mingw*)
-		AC_MSG_ERROR("Windows builds cannot use TSAN")
-		;;
-	esac
-	enable_debug=yes
-	CFLAGS="$CFLAGS -fsanitize=thread -fno-omit-frame-pointer"
-	CXXFLAGS="$CXXFLAGS -fsanitize=thread -fno-omit-frame-pointer"
-	LDFLAGS="$LDFLAGS -fsanitize=thread"
+  enable_debug=yes
+  tsan_failed=no
+  AX_CHECK_COMPILE_FLAG([-fsanitize=thread],
+    [CXXFLAGS="$CXXFLAGS -fsanitize=thread"],
+    [tsan_failed=yes])
+  AX_CHECK_LINK_FLAG([-fsanitize=thread],
+    [LDFLAGS="$LDFLAGS -fsanitize=thread"],
+    [tsan_failed=yes])
+  AX_CHECK_COMPILE_FLAG([-fno-omit-frame-pointer],
+    [CXXFLAGS="$CXXFLAGS -fno-omit-frame-pointer"],
+    [tsan_failed=yes])
+
+  if test "x$tsan_failed" = xyes; then
+    AC_MSG_ERROR("TSAN is not supported")
+  fi
 fi
 
 if test "x$enable_ubsan" = xyes; then
-	case $host in
-  	*mingw*)
-		AC_MSG_ERROR("Windows builds cannot use UBSAN")
-		;;
-	esac
-	enable_debug=yes
-	CFLAGS="$CFLAGS -fsanitize=undefined -fno-omit-frame-pointer"
-	CXXFLAGS="$CXXFLAGS -fsanitize=undefined -fno-omit-frame-pointer"
-	LDFLAGS="$LDFLAGS -fsanitize=undefined"
+  enable_debug=yes
+  ubsan_failed=no
+  AX_CHECK_COMPILE_FLAG([-fsanitize=undefined],
+    [CXXFLAGS="$CXXFLAGS -fsanitize=undefined"],
+    [ubsan_failed=yes])
+  AX_CHECK_LINK_FLAG([-fsanitize=undefined],
+    [LDFLAGS="$LDFLAGS -fsanitize=undefined"],
+    [ubsan_failed=yes])
+  AX_CHECK_COMPILE_FLAG([-fno-omit-frame-pointer],
+    [CXXFLAGS="$CXXFLAGS -fno-omit-frame-pointer"],
+    [ubsan_failed=yes])
+
+  if test "x$ubsan_failed" = xyes; then
+    AC_MSG_ERROR("UBSAN is not supported")
+  fi
 fi
 
 if test "x$enable_debug" = xyes; then
@@ -290,16 +320,35 @@ if test "x$CXXFLAGS_overridden" = "xno"; then
   ## unknown options if any other warning is produced. Test the -Wfoo case, and
   ## set the -Wno-foo case if it works.
   AX_CHECK_COMPILE_FLAG([-Wunused-parameter],[CXXFLAGS="$CXXFLAGS -Wno-unused-parameter"],,[[$CXXFLAG_WERROR]])
-  AX_CHECK_COMPILE_FLAG([-Wself-assign],[CXXFLAGS="$CXXFLAGS -Wno-self-assign"],,[[$CXXFLAG_WERROR]])
-  AX_CHECK_COMPILE_FLAG([-Wunused-local-typedef],[CXXFLAGS="$CXXFLAGS -Wno-unused-local-typedef"],,[[$CXXFLAG_WERROR]])
-  AX_CHECK_COMPILE_FLAG([-Wdeprecated-register],[CXXFLAGS="$CXXFLAGS -Wno-deprecated-register"],,[[$CXXFLAG_WERROR]])
-
-  # Check for optional instruction set support. Enabling these does _not_ imply that all code will
-  # be compiled with them, rather that specific objects/libs may use them after checking for runtime
-  # compatibility.
-  AX_CHECK_COMPILE_FLAG([-msse4.2],[[enable_sse42=yes; SSE42_CXXFLAGS="-msse4.2"]],,[[$CXXFLAG_WERROR]])
-
 fi
+
+# Check for optional instruction set support. Enabling these does _not_ imply that all code will
+# be compiled with them, rather that specific objects/libs may use them after checking for runtime
+# compatibility.
+AX_CHECK_COMPILE_FLAG([-msse4.2],[[SSE42_CXXFLAGS="-msse4.2"]],,[[$CXXFLAG_WERROR]])
+
+TEMP_CXXFLAGS="$CXXFLAGS"
+CXXFLAGS="$CXXFLAGS $SSE42_CXXFLAGS"
+AC_MSG_CHECKING(for assembler crc32 support)
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+    #include <stdint.h>
+    #if defined(_MSC_VER)
+    #include <intrin.h>
+    #elif defined(__GNUC__) && defined(__SSE4_2__)
+    #include <nmmintrin.h>
+    #endif
+  ]],[[
+    uint64_t l = 0;
+    l = _mm_crc32_u8(l, 0);
+    l = _mm_crc32_u32(l, 0);
+    l = _mm_crc32_u64(l, 0);
+    return l;
+  ]])],
+ [ AC_MSG_RESULT(yes); enable_hwcrc32=yes],
+ [ AC_MSG_RESULT(no)]
+)
+CXXFLAGS="$TEMP_CXXFLAGS"
+
 CPPFLAGS="$CPPFLAGS -DHAVE_BUILD_INFO -D__STDC_FORMAT_MACROS"
 
 AC_ARG_WITH([utils],
@@ -483,8 +532,8 @@ if test x$use_pkgconfig = xyes; then
   ])
 fi
 
-if test x$use_extended_rpc_tests != xno; then
-  AC_SUBST(EXTENDED_RPC_TESTS, -extended)
+if test x$use_extended_functional_tests != xno; then
+  AC_SUBST(EXTENDED_FUNCTIONAL_TESTS, --extended)
 fi
 
 if test x$use_lcov = xyes; then
@@ -671,6 +720,14 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <unistd.h>]],
  [ AC_MSG_RESULT(no)]
 )
 
+AC_MSG_CHECKING(for getentropy via random.h)
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <unistd.h>
+ #include <sys/random.h>]],
+ [[ getentropy(nullptr, 32) ]])],
+ [ AC_MSG_RESULT(yes); AC_DEFINE(HAVE_GETENTROPY_RAND, 1,[Define this symbol if the BSD getentropy system call is available with sys/random.h]) ],
+ [ AC_MSG_RESULT(no)]
+)
+
 AC_MSG_CHECKING(for sysctl KERN_ARND)
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <sys/types.h>
   #include <sys/sysctl.h>]],
@@ -696,7 +753,7 @@ AC_SUBST(LIBMEMENV)
 
 if test x$enable_wallet != xno; then
     dnl Check for libdb_cxx only if wallet enabled
-    BITCOIN_FIND_BDB48
+    BITCOIN_FIND_BDB53
 fi
 
 dnl Check for libminiupnpc (optional)
@@ -722,7 +779,7 @@ fi
 if test x$use_boost = xyes; then
 
 dnl Minimum required Boost version
-define(MINIMUM_REQUIRED_BOOST, 1.47.0)
+define(MINIMUM_REQUIRED_BOOST, 1.58.0)
 
 dnl Check for boost libs
 AX_BOOST_BASE([MINIMUM_REQUIRED_BOOST])
@@ -732,6 +789,10 @@ AX_BOOST_PROGRAM_OPTIONS
 AX_BOOST_THREAD
 AX_BOOST_CHRONO
 
+dnl Boost 1.56 through 1.62 allow using std::atomic instead of its own atomic
+dnl counter implementations. In 1.63 and later the std::atomic approach is default.
+m4_pattern_allow(DBOOST_AC_USE_STD_ATOMIC) dnl otherwise it's treated like a macro
+BOOST_CPPFLAGS="-DBOOST_SP_USE_STD_ATOMIC -DBOOST_AC_USE_STD_ATOMIC $BOOST_CPPFLAGS"
 
 if test x$use_reduce_exports = xyes; then
   AC_MSG_CHECKING([for working boost reduced exports])
@@ -812,14 +873,14 @@ TEMP_CPPFLAGS="$CPPFLAGS"
 CPPFLAGS="$CPPFLAGS $BOOST_CPPFLAGS"
 AC_MSG_CHECKING([for mismatched boost c++11 scoped enums])
 AC_LINK_IFELSE([AC_LANG_PROGRAM([[
-  #include "boost/config.hpp"
-  #include "boost/version.hpp"
+  #include <boost/config.hpp>
+  #include <boost/version.hpp>
   #if !defined(BOOST_NO_SCOPED_ENUMS) && !defined(BOOST_NO_CXX11_SCOPED_ENUMS) && BOOST_VERSION < 105700
   #define BOOST_NO_SCOPED_ENUMS
   #define BOOST_NO_CXX11_SCOPED_ENUMS
   #define CHECK
   #endif
-  #include "boost/filesystem.hpp"
+  #include <boost/filesystem.hpp>
   ]],[[
   #if defined(CHECK)
     boost::filesystem::copy_file("foo", "bar");
@@ -1167,7 +1228,8 @@ AM_CONDITIONAL([USE_QRCODE], [test x$use_qr = xyes])
 AM_CONDITIONAL([USE_LCOV],[test x$use_lcov = xyes])
 AM_CONDITIONAL([GLIBC_BACK_COMPAT],[test x$use_glibc_compat = xyes])
 AM_CONDITIONAL([HARDEN],[test x$use_hardening = xyes])
-AM_CONDITIONAL([ENABLE_SSE42],[test x$enable_sse42 = xyes])
+AM_CONDITIONAL([ENABLE_HWCRC32],[test x$enable_hwcrc32 = xyes])
+AM_CONDITIONAL([USE_ASM],[test x$use_asm = xyes])
 
 AC_DEFINE(CLIENT_VERSION_MAJOR, _CLIENT_VERSION_MAJOR, [Major version])
 AC_DEFINE(CLIENT_VERSION_MINOR, _CLIENT_VERSION_MINOR, [Minor version])
@@ -1217,10 +1279,10 @@ AC_SUBST(EVENT_PTHREADS_LIBS)
 AC_SUBST(ZMQ_LIBS)
 AC_SUBST(PROTOBUF_LIBS)
 AC_SUBST(QR_LIBS)
-AC_CONFIG_FILES([Makefile src/Makefile doc/man/Makefile share/setup.nsi share/qt/Info.plist src/test/buildenv.py])
-AC_CONFIG_FILES([qa/pull-tester/tests_config.py],[chmod +x qa/pull-tester/tests_config.py])
+AC_CONFIG_FILES([Makefile src/Makefile doc/man/Makefile share/setup.nsi share/qt/Info.plist test/config.ini])
 AC_CONFIG_FILES([contrib/devtools/split-debug.sh],[chmod +x contrib/devtools/split-debug.sh])
-AC_CONFIG_LINKS([qa/pull-tester/rpc-tests.py:qa/pull-tester/rpc-tests.py])
+AC_CONFIG_LINKS([test/functional/test_runner.py:test/functional/test_runner.py])
+AC_CONFIG_LINKS([test/util/bitcoin-util-test.py:test/util/bitcoin-util-test.py])
 
 dnl boost's m4 checks do something really nasty: they export these vars. As a
 dnl result, they leak into secp256k1's configure and crazy things happen.
@@ -1249,7 +1311,7 @@ if test x$need_bundled_univalue = xyes; then
   AC_CONFIG_SUBDIRS([src/univalue])
 fi
 
-ac_configure_args="${ac_configure_args} --disable-shared --with-pic --with-bignum=no --enable-module-recovery"
+ac_configure_args="${ac_configure_args} --disable-shared --with-pic --with-bignum=no --enable-module-recovery --enable-module-multiset --disable-jni"
 AC_CONFIG_SUBDIRS([src/secp256k1])
 
 AC_OUTPUT
@@ -1268,8 +1330,8 @@ esac
 dnl Replace the BUILDDIR path with the correct Windows path if compiling on Native Windows
 case ${OS} in
    *Windows*)
-     sed  's/BUILDDIR="\/\([[a-z]]\)/BUILDDIR="\1:/'  qa/pull-tester/tests_config.py > qa/pull-tester/tests_config-2.py
-     mv qa/pull-tester/tests_config-2.py qa/pull-tester/tests_config.py
+     sed  's/BUILDDIR="\/\([[a-z]]\)/BUILDDIR="\1:/'  test/config.ini > test/config-2.ini
+     mv test/config-2.ini test/config.ini
    ;;
 esac
 
@@ -1285,6 +1347,7 @@ echo "  with zmq      = $use_zmq"
 echo "  with test     = $use_tests"
 echo "  with bench    = $use_bench"
 echo "  with upnp     = $use_upnp"
+echo "  use asm       = $use_asm"
 echo "  debug enabled = $enable_debug"
 echo "  werror        = $enable_werror"
 echo

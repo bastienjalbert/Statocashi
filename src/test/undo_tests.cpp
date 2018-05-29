@@ -2,9 +2,9 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "undo.h"
 #include "chainparams.h"
 #include "consensus/validation.h"
+#include "undo.h"
 #include "validation.h"
 
 #include "test/test_bitcoin.h"
@@ -16,8 +16,6 @@ BOOST_FIXTURE_TEST_SUITE(undo_tests, BasicTestingSetup)
 static void UpdateUTXOSet(const CBlock &block, CCoinsViewCache &view,
                           CBlockUndo &blockundo,
                           const CChainParams &chainparams, uint32_t nHeight) {
-    CValidationState state;
-
     auto &coinbaseTx = *block.vtx[0];
     UpdateCoins(coinbaseTx, view, nHeight);
 
@@ -53,22 +51,21 @@ BOOST_AUTO_TEST_CASE(connect_utxo_extblock) {
     CCoinsView coinsDummy;
     CCoinsViewCache view(&coinsDummy);
 
-    block.hashPrevBlock = GetRandHash();
+    block.hashPrevBlock = InsecureRand256();
     view.SetBestBlock(block.hashPrevBlock);
 
     // Create a block with coinbase and resolution transaction.
     tx.vin.resize(1);
     tx.vin[0].scriptSig.resize(10);
     tx.vout.resize(1);
-    tx.vout[0].nValue = 42;
+    tx.vout[0].nValue = Amount(42);
     auto coinbaseTx = CTransaction(tx);
 
     block.vtx.resize(2);
     block.vtx[0] = MakeTransactionRef(tx);
 
     tx.vout[0].scriptPubKey = CScript() << OP_TRUE;
-    tx.vin[0].prevout.hash = GetRandHash();
-    tx.vin[0].prevout.n = 0;
+    tx.vin[0].prevout = COutPoint(InsecureRand256(), 0);
     tx.vin[0].nSequence = CTxIn::SEQUENCE_FINAL;
     tx.vin[0].scriptSig.resize(0);
     tx.nVersion = 2;
@@ -76,7 +73,7 @@ BOOST_AUTO_TEST_CASE(connect_utxo_extblock) {
     auto prevTx0 = CTransaction(tx);
     AddCoins(view, prevTx0, 100);
 
-    tx.vin[0].prevout.hash = prevTx0.GetId();
+    tx.vin[0].prevout = COutPoint(prevTx0.GetId(), 0);
     auto tx0 = CTransaction(tx);
     block.vtx[1] = MakeTransactionRef(tx0);
 

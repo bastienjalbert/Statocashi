@@ -12,7 +12,6 @@
 #include "crypto/sha512.h"
 #include "random.h"
 #include "test/test_bitcoin.h"
-#include "test/test_random.h"
 #include "utilstrencodings.h"
 
 #include <vector>
@@ -38,7 +37,7 @@ void TestVector(const Hasher &h, const In &in, const Out &out) {
         Hasher hasher(h);
         size_t pos = 0;
         while (pos < in.size()) {
-            size_t len = insecure_rand() % ((in.size() - pos + 1) / 2 + 1);
+            size_t len = InsecureRandRange((in.size() - pos + 1) / 2 + 1);
             hasher.Write((uint8_t *)&in[pos], len);
             pos += len;
             if (pos > 0 && pos + 2 * out.size() > in.size() &&
@@ -160,9 +159,9 @@ void TestAES128CBC(const std::string &hexkey, const std::string &hexiv,
             _size = dec.Decrypt(&subout[0], subout.size(), &subdecrypted[0]);
             subdecrypted.resize(_size);
             BOOST_CHECK(decrypted.size() == in.size());
-            BOOST_CHECK_MESSAGE(subdecrypted == sub, HexStr(subdecrypted) +
-                                                         std::string(" != ") +
-                                                         HexStr(sub));
+            BOOST_CHECK_MESSAGE(subdecrypted == sub,
+                                HexStr(subdecrypted) + std::string(" != ") +
+                                    HexStr(sub));
         }
     }
 }
@@ -205,9 +204,9 @@ void TestAES256CBC(const std::string &hexkey, const std::string &hexiv,
             _size = dec.Decrypt(&subout[0], subout.size(), &subdecrypted[0]);
             subdecrypted.resize(_size);
             BOOST_CHECK(decrypted.size() == in.size());
-            BOOST_CHECK_MESSAGE(subdecrypted == sub, HexStr(subdecrypted) +
-                                                         std::string(" != ") +
-                                                         HexStr(sub));
+            BOOST_CHECK_MESSAGE(subdecrypted == sub,
+                                HexStr(subdecrypted) + std::string(" != ") +
+                                    HexStr(sub));
         }
     }
 }

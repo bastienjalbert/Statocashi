@@ -1,5 +1,4 @@
 Statocashi: Bitcoin ABC Core + statistics logging
-=====================================
 
 What is Statocashi ?
 ----------------
@@ -8,6 +7,28 @@ Statocashi is a fork of JLOPP Statoshi (http://statoshi.info) adapted to work wi
 bitcoin cash. It uses Bitcoin ABC node.
 
 Statocashi = https://github.com/jlopp/statoshi + https://github.com/Bitcoin-ABC/bitcoin-abc
+=======
+[Bitcoin ABC](https://www.bitcoinabc.org)
+===========
+
+The goal of Bitcoin ABC is to create sound money that is usable by everyone in
+the world. We believe this is a civilization-changing technology which will
+dramatically increase human flourishing, freedom, and prosperity. The project
+aims to achieve this goal by implementing a series of optimizations and
+protocol upgrades that will enable peer-to-peer digital cash to scale many
+orders of magnitude beyond current limits.
+
+What is Bitcoin Cash?
+---------------------
+
+[Bitcoin Cash](https://www.bitcoincash.org/) is an experimental digital
+currency that enables instant payments to anyone, anywhere in the world. It
+uses peer-to-peer technology to operate with no central authority: managing
+transactions and issuing money are carried out collectively by the network.
+Bitcoin Cash is a descendant of Bitcoin. It became a separate currency from
+the version supported by Bitcoin Core when the two split on August 1, 2017.
+Bitcoin Cash and the Bitcoin Core version of Bitcoin share the same
+transaction history up until the split.
 
 Version
 -------
@@ -17,6 +38,7 @@ Version
 
 16 August 2017 : First fork from Bitcoin ABC and Statoshi functions implementation.
 
+29 May 2018 : Upgrade to Bitcoin ABC V0.17 (New hard-fork)
 
 Preview 
 -------
@@ -196,3 +218,4 @@ Valuable links :
 ----------------
 
 http://docs.grafana.org/installation/configuration Some information about grafana configuration
+If you would like to contribute, please read [CONTRIBUTING](CONTRIBUTING.md)

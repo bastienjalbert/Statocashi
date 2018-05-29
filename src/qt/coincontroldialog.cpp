@@ -13,6 +13,7 @@
 #include "txmempool.h"
 #include "walletmodel.h"
 
+#include "dstencode.h"
 #include "init.h"
 #include "policy/policy.h"
 #include "validation.h" // For mempool
@@ -30,7 +31,7 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
-QList<CAmount> CoinControlDialog::payAmounts;
+QList<Amount> CoinControlDialog::payAmounts;
 CCoinControl *CoinControlDialog::coinControl = new CCoinControl();
 bool CoinControlDialog::fSubtractFeeFromAmount = false;
 
@@ -449,30 +450,27 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog *dialog) {
     if (!model) return;
 
     // nPayAmount
-    CAmount nPayAmount = 0;
+    Amount nPayAmount(0);
     bool fDust = false;
     CMutableTransaction txDummy;
-    for (const CAmount &amount : CoinControlDialog::payAmounts) {
+    for (const Amount amount : CoinControlDialog::payAmounts) {
         nPayAmount += amount;
 
-        if (amount > 0) {
-            CTxOut txout(amount, (CScript)std::vector<uint8_t>(24, 0));
+        if (amount > Amount(0)) {
+            CTxOut txout(Amount(amount), (CScript)std::vector<uint8_t>(24, 0));
             txDummy.vout.push_back(txout);
             if (txout.IsDust(dustRelayFee)) fDust = true;
         }
     }
 
-    CAmount nAmount = 0;
-    CAmount nPayFee = 0;
-    CAmount nAfterFee = 0;
-    CAmount nChange = 0;
+    Amount nAmount(0);
+    Amount nPayFee(0);
+    Amount nAfterFee(0);
+    Amount nChange(0);
     unsigned int nBytes = 0;
     unsigned int nBytesInputs = 0;
-    double dPriority = 0;
-    double dPriorityInputs = 0;
     unsigned int nQuantity = 0;
     int nQuantityUncompressed = 0;
-    bool fAllowFree = false;
 
     std::vector<COutPoint> vCoinControl;
     std::vector<COutput> vOutputs;
@@ -493,12 +491,7 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog *dialog) {
         nQuantity++;
 
         // Amount
-        nAmount += out.tx->tx->vout[out.i].nValue.GetSatoshis();
-
-        // Priority
-        dPriorityInputs +=
-            (double)out.tx->tx->vout[out.i].nValue.GetSatoshis() *
-            (out.nDepth + 1);
+        nAmount += out.tx->tx->vout[out.i].nValue;
 
         // Bytes
         CTxDestination address;
@@ -529,61 +522,49 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog *dialog) {
         // in the subtract fee from amount case, we can tell if zero change
         // already and subtract the bytes, so that fee calculation afterwards is
         // accurate
-        if (CoinControlDialog::fSubtractFeeFromAmount)
-            if (nAmount - nPayAmount == 0) nBytes -= 34;
+        if (CoinControlDialog::fSubtractFeeFromAmount) {
+            if (nAmount - nPayAmount == Amount(0)) {
+                nBytes -= 34;
+            }
+        }
 
         // Fee
         nPayFee = CWallet::GetMinimumFee(nBytes, nTxConfirmTarget, mempool);
-        if (nPayFee > 0 && coinControl->nMinimumTotalFee > nPayFee)
+        if (nPayFee > Amount(0) && coinControl->nMinimumTotalFee > nPayFee) {
             nPayFee = coinControl->nMinimumTotalFee;
+        }
 
-        // Allow free? (require at least hard-coded threshold and default to
-        // that if no estimate)
-        double mempoolEstimatePriority =
-            mempool.estimateSmartPriority(nTxConfirmTarget);
-        // 29 = 180 - 151 (uncompressed public keys are over the limit. max 151
-        // bytes of the input are ignored for priority)
-        dPriority = dPriorityInputs /
-                    (nBytes - nBytesInputs + (nQuantityUncompressed * 29));
-        double dPriorityNeeded =
-            std::max(mempoolEstimatePriority, AllowFreeThreshold());
-        fAllowFree = (dPriority >= dPriorityNeeded);
-
-        if (fSendFreeTransactions)
-            if (fAllowFree && nBytes <= MAX_FREE_TRANSACTION_CREATE_SIZE)
-                nPayFee = 0;
-
-        if (nPayAmount > 0) {
+        if (nPayAmount > Amount(0)) {
             nChange = nAmount - nPayAmount;
             if (!CoinControlDialog::fSubtractFeeFromAmount) nChange -= nPayFee;
 
             // Never create dust outputs; if we would, just add the dust to the
             // fee.
-            if (nChange > 0 && nChange < MIN_CHANGE) {
+            if (nChange > Amount(0) && nChange < MIN_CHANGE) {
                 CTxOut txout(nChange, (CScript)std::vector<uint8_t>(24, 0));
                 if (txout.IsDust(dustRelayFee)) {
                     // dust-change will be raised until no dust
                     if (CoinControlDialog::fSubtractFeeFromAmount) {
-                        nChange =
-                            txout.GetDustThreshold(dustRelayFee).GetSatoshis();
+                        nChange = txout.GetDustThreshold(dustRelayFee);
                     } else {
                         nPayFee += nChange;
-                        nChange = 0;
+                        nChange = Amount(0);
                     }
                 }
             }
 
-            if (nChange == 0 && !CoinControlDialog::fSubtractFeeFromAmount) {
+            if (nChange == Amount(0) &&
+                !CoinControlDialog::fSubtractFeeFromAmount) {
                 nBytes -= 34;
             }
         }
 
         // after fee
-        nAfterFee = std::max<CAmount>(nAmount - nPayFee, 0);
+        nAfterFee = std::max(nAmount - nPayFee, Amount(0));
     }
 
     // actually update labels
-    int nDisplayUnit = BitcoinUnits::BCC;
+    int nDisplayUnit = BitcoinUnits::BCH;
     if (model && model->getOptionsModel()) {
         nDisplayUnit = model->getOptionsModel()->getDisplayUnit();
     }
@@ -598,13 +579,13 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog *dialog) {
 
     // enable/disable "dust" and "change"
     dialog->findChild<QLabel *>("labelCoinControlLowOutputText")
-        ->setEnabled(nPayAmount > 0);
+        ->setEnabled(nPayAmount > Amount(0));
     dialog->findChild<QLabel *>("labelCoinControlLowOutput")
-        ->setEnabled(nPayAmount > 0);
+        ->setEnabled(nPayAmount > Amount(0));
     dialog->findChild<QLabel *>("labelCoinControlChangeText")
-        ->setEnabled(nPayAmount > 0);
+        ->setEnabled(nPayAmount > Amount(0));
     dialog->findChild<QLabel *>("labelCoinControlChange")
-        ->setEnabled(nPayAmount > 0);
+        ->setEnabled(nPayAmount > Amount(0));
 
     // stats
     // Quantity
@@ -621,10 +602,10 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog *dialog) {
     l7->setText(fDust ? tr("yes") : tr("no"));
     // Change
     l8->setText(BitcoinUnits::formatWithUnit(nDisplayUnit, nChange));
-    if (nPayFee > 0 && (coinControl->nMinimumTotalFee < nPayFee)) {
+    if (nPayFee > Amount(0) && (coinControl->nMinimumTotalFee < nPayFee)) {
         l3->setText(ASYMP_UTF8 + l3->text());
         l4->setText(ASYMP_UTF8 + l4->text());
-        if (nChange > 0 && !CoinControlDialog::fSubtractFeeFromAmount) {
+        if (nChange > Amount(0) && !CoinControlDialog::fSubtractFeeFromAmount) {
             l8->setText(ASYMP_UTF8 + l8->text());
         }
     }
@@ -639,15 +620,16 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog *dialog) {
 
     // how many satoshis the estimated fee can vary per byte we guess wrong
     double dFeeVary;
-    if (payTxFee.GetFeePerK() > 0) {
+    if (payTxFee.GetFeePerK() > Amount(0)) {
         dFeeVary = (double)std::max(CWallet::GetRequiredFee(1000),
-                                    payTxFee.GetFeePerK().GetSatoshis()) /
+                                    payTxFee.GetFeePerK())
+                       .GetSatoshis() /
                    1000;
     } else {
-        dFeeVary = (double)std::max(CWallet::GetRequiredFee(1000),
-                                    mempool.estimateSmartFee(nTxConfirmTarget)
-                                        .GetFeePerK()
-                                        .GetSatoshis()) /
+        dFeeVary = (double)std::max(
+                       CWallet::GetRequiredFee(1000),
+                       mempool.estimateSmartFee(nTxConfirmTarget).GetFeePerK())
+                       .GetSatoshis() /
                    1000;
     }
     QString toolTip4 =
@@ -671,7 +653,7 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog *dialog) {
     // Insufficient funds
     QLabel *label = dialog->findChild<QLabel *>("labelCoinControlInsuffFunds");
     if (label) {
-        label->setVisible(nChange < 0);
+        label->setVisible(nChange < Amount(0));
     }
 }
 
@@ -723,10 +705,10 @@ void CoinControlDialog::updateView() {
             itemWalletAddress->setText(COLUMN_ADDRESS, sWalletAddress);
         }
 
-        CAmount nSum = 0;
+        Amount nSum(0);
         int nChildren = 0;
         for (const COutput &out : coins.second) {
-            nSum += out.tx->tx->vout[out.i].nValue.GetSatoshis();
+            nSum += out.tx->tx->vout[out.i].nValue;
             nChildren++;
 
             CCoinControlWidgetItem *itemOutput;
@@ -755,9 +737,10 @@ void CoinControlDialog::updateView() {
             // label
             if (!(sAddress == sWalletAddress)) {
                 // change tooltip from where the change comes from
-                itemOutput->setToolTip(COLUMN_LABEL, tr("change from %1 (%2)")
-                                                         .arg(sWalletLabel)
-                                                         .arg(sWalletAddress));
+                itemOutput->setToolTip(COLUMN_LABEL,
+                                       tr("change from %1 (%2)")
+                                           .arg(sWalletLabel)
+                                           .arg(sWalletAddress));
                 itemOutput->setText(COLUMN_LABEL, tr("(change)"));
             } else if (!treeMode) {
                 QString sLabel =
@@ -771,9 +754,8 @@ void CoinControlDialog::updateView() {
             // amount
             itemOutput->setText(
                 COLUMN_AMOUNT,
-                BitcoinUnits::format(
-                    nDisplayUnit,
-                    out.tx->tx->vout[out.i].nValue.GetSatoshis()));
+                BitcoinUnits::format(nDisplayUnit,
+                                     out.tx->tx->vout[out.i].nValue));
             // padding so that sorting works correctly
             itemOutput->setData(
                 COLUMN_AMOUNT, Qt::UserRole,
@@ -824,7 +806,7 @@ void CoinControlDialog::updateView() {
             itemWalletAddress->setText(
                 COLUMN_AMOUNT, BitcoinUnits::format(nDisplayUnit, nSum));
             itemWalletAddress->setData(COLUMN_AMOUNT, Qt::UserRole,
-                                       QVariant((qlonglong)nSum));
+                                       QVariant((qlonglong)nSum.GetSatoshis()));
         }
     }
 

@@ -13,7 +13,6 @@
 typedef std::vector<uint8_t> valtype;
 
 bool fAcceptDatacarrier = DEFAULT_ACCEPT_DATACARRIER;
-unsigned nMaxDatacarrierBytes = MAX_OP_RETURN_RELAY;
 
 CScriptID::CScriptID(const CScript &in)
     : uint160(Hash160(in.begin(), in.end())) {}
@@ -51,14 +50,16 @@ bool Solver(const CScript &scriptPubKey, txnouttype &typeRet,
 
         // Bitcoin address tx, sender provides hash of pubkey, receiver provides
         // signature and pubkey
-        mTemplates.insert(std::make_pair(
-            TX_PUBKEYHASH, CScript() << OP_DUP << OP_HASH160 << OP_PUBKEYHASH
+        mTemplates.insert(
+            std::make_pair(TX_PUBKEYHASH,
+                           CScript() << OP_DUP << OP_HASH160 << OP_PUBKEYHASH
                                      << OP_EQUALVERIFY << OP_CHECKSIG));
 
         // Sender provides N pubkeys, receivers provides M signatures
-        mTemplates.insert(std::make_pair(
-            TX_MULTISIG, CScript() << OP_SMALLINTEGER << OP_PUBKEYS
-                                   << OP_SMALLINTEGER << OP_CHECKMULTISIG));
+        mTemplates.insert(
+            std::make_pair(TX_MULTISIG,
+                           CScript() << OP_SMALLINTEGER << OP_PUBKEYS
+                                     << OP_SMALLINTEGER << OP_CHECKMULTISIG));
     }
 
     vSolutionsRet.clear();
@@ -106,38 +107,52 @@ bool Solver(const CScript &scriptPubKey, txnouttype &typeRet,
                     uint8_t m = vSolutionsRet.front()[0];
                     uint8_t n = vSolutionsRet.back()[0];
                     if (m < 1 || n < 1 || m > n ||
-                        vSolutionsRet.size() - 2 != n)
+                        vSolutionsRet.size() - 2 != n) {
                         return false;
+                    }
                 }
                 return true;
             }
-            if (!script1.GetOp(pc1, opcode1, vch1)) break;
-            if (!script2.GetOp(pc2, opcode2, vch2)) break;
+            if (!script1.GetOp(pc1, opcode1, vch1)) {
+                break;
+            }
+            if (!script2.GetOp(pc2, opcode2, vch2)) {
+                break;
+            }
 
             // Template matching opcodes:
             if (opcode2 == OP_PUBKEYS) {
                 while (vch1.size() >= 33 && vch1.size() <= 65) {
                     vSolutionsRet.push_back(vch1);
-                    if (!script1.GetOp(pc1, opcode1, vch1)) break;
+                    if (!script1.GetOp(pc1, opcode1, vch1)) {
+                        break;
+                    }
                 }
-                if (!script2.GetOp(pc2, opcode2, vch2)) break;
+                if (!script2.GetOp(pc2, opcode2, vch2)) {
+                    break;
+                }
                 // Normal situation is to fall through to other if/else
                 // statements
             }
 
             if (opcode2 == OP_PUBKEY) {
-                if (vch1.size() < 33 || vch1.size() > 65) break;
+                if (vch1.size() < 33 || vch1.size() > 65) {
+                    break;
+                }
                 vSolutionsRet.push_back(vch1);
             } else if (opcode2 == OP_PUBKEYHASH) {
-                if (vch1.size() != sizeof(uint160)) break;
+                if (vch1.size() != sizeof(uint160)) {
+                    break;
+                }
                 vSolutionsRet.push_back(vch1);
             } else if (opcode2 == OP_SMALLINTEGER) {
                 // Single-byte small integer pushed onto vSolutions
                 if (opcode1 == OP_0 || (opcode1 >= OP_1 && opcode1 <= OP_16)) {
                     char n = (char)CScript::DecodeOP_N(opcode1);
                     vSolutionsRet.push_back(valtype(1, n));
-                } else
+                } else {
                     break;
+                }
             } else if (opcode1 != opcode2 || vch1 != vch2) {
                 // Others must match exactly
                 break;
@@ -154,18 +169,24 @@ bool ExtractDestination(const CScript &scriptPubKey,
                         CTxDestination &addressRet) {
     std::vector<valtype> vSolutions;
     txnouttype whichType;
-    if (!Solver(scriptPubKey, whichType, vSolutions)) return false;
+    if (!Solver(scriptPubKey, whichType, vSolutions)) {
+        return false;
+    }
 
     if (whichType == TX_PUBKEY) {
         CPubKey pubKey(vSolutions[0]);
-        if (!pubKey.IsValid()) return false;
+        if (!pubKey.IsValid()) {
+            return false;
+        }
 
         addressRet = pubKey.GetID();
         return true;
-    } else if (whichType == TX_PUBKEYHASH) {
+    }
+    if (whichType == TX_PUBKEYHASH) {
         addressRet = CKeyID(uint160(vSolutions[0]));
         return true;
-    } else if (whichType == TX_SCRIPTHASH) {
+    }
+    if (whichType == TX_SCRIPTHASH) {
         addressRet = CScriptID(uint160(vSolutions[0]));
         return true;
     }
@@ -179,7 +200,9 @@ bool ExtractDestinations(const CScript &scriptPubKey, txnouttype &typeRet,
     addressRet.clear();
     typeRet = TX_NONSTANDARD;
     std::vector<valtype> vSolutions;
-    if (!Solver(scriptPubKey, typeRet, vSolutions)) return false;
+    if (!Solver(scriptPubKey, typeRet, vSolutions)) {
+        return false;
+    }
     if (typeRet == TX_NULL_DATA) {
         // This is data, not addresses
         return false;
@@ -187,19 +210,25 @@ bool ExtractDestinations(const CScript &scriptPubKey, txnouttype &typeRet,
 
     if (typeRet == TX_MULTISIG) {
         nRequiredRet = vSolutions.front()[0];
-        for (unsigned int i = 1; i < vSolutions.size() - 1; i++) {
+        for (size_t i = 1; i < vSolutions.size() - 1; i++) {
             CPubKey pubKey(vSolutions[i]);
-            if (!pubKey.IsValid()) continue;
+            if (!pubKey.IsValid()) {
+                continue;
+            }
 
             CTxDestination address = pubKey.GetID();
             addressRet.push_back(address);
         }
 
-        if (addressRet.empty()) return false;
+        if (addressRet.empty()) {
+            return false;
+        }
     } else {
         nRequiredRet = 1;
         CTxDestination address;
-        if (!ExtractDestination(scriptPubKey, address)) return false;
+        if (!ExtractDestination(scriptPubKey, address)) {
+            return false;
+        }
         addressRet.push_back(address);
     }
 
@@ -232,7 +261,7 @@ public:
         return true;
     }
 };
-}
+} // namespace
 
 CScript GetScriptForDestination(const CTxDestination &dest) {
     CScript script;
@@ -250,8 +279,9 @@ CScript GetScriptForMultisig(int nRequired, const std::vector<CPubKey> &keys) {
     CScript script;
 
     script << CScript::EncodeOP_N(nRequired);
-    for (const CPubKey &key : keys)
+    for (const CPubKey &key : keys) {
         script << ToByteVector(key);
+    }
     script << CScript::EncodeOP_N(keys.size()) << OP_CHECKMULTISIG;
     return script;
 }

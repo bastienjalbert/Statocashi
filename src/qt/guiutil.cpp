@@ -6,9 +6,14 @@
 
 #include "bitcoinaddressvalidator.h"
 #include "bitcoinunits.h"
+#include "dstencode.h"
 #include "qvalidatedlineedit.h"
 #include "walletmodel.h"
 
+#include "cashaddr.h"
+#include "config.h"
+#include "dstencode.h"
+#include "fs.h"
 #include "init.h"
 #include "policy/policy.h"
 #include "primitives/transaction.h"
@@ -16,6 +21,7 @@
 #include "script/script.h"
 #include "script/standard.h"
 #include "util.h"
+#include "utilstrencodings.h"
 
 #ifdef WIN32
 #ifdef _WIN32_WINNT
@@ -35,7 +41,6 @@
 #include "shlwapi.h"
 #endif
 
-#include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
 #if BOOST_FILESYSTEM_VERSION >= 3
 #include <boost/filesystem/detail/utf8_codecvt_facet.hpp>
@@ -68,7 +73,7 @@
 #endif
 
 #if BOOST_FILESYSTEM_VERSION >= 3
-static boost::filesystem::detail::utf8_codecvt_facet utf8;
+static fs::detail::utf8_codecvt_facet utf8;
 #endif
 
 #if defined(Q_OS_MAC)
@@ -86,7 +91,6 @@ extern double NSAppKitVersionNumber;
 #endif
 
 namespace GUIUtil {
-const QString URI_SCHEME("bitcoincash");
 
 QString dateTimeStr(const QDateTime &date) {
     return date.date().toString(Qt::SystemLocaleShortDate) + QString(" ") +
@@ -111,27 +115,44 @@ QFont fixedPitchFont() {
 #endif
 }
 
-// Just some dummy data to generate an convincing random-looking (but
-// consistent) address
-static const uint8_t dummydata[] = {
-    0xeb, 0x15, 0x23, 0x1d, 0xfc, 0xeb, 0x60, 0x92, 0x58, 0x86, 0xb6, 0x7d,
-    0x06, 0x52, 0x99, 0x92, 0x59, 0x15, 0xae, 0xb1, 0x72, 0xc0, 0x66, 0x47};
+static std::string MakeAddrInvalid(std::string addr) {
+    if (addr.size() < 2) {
+        return "";
+    }
 
-// Generate a dummy address with invalid CRC, starting with the network prefix.
-static std::string DummyAddress(const CChainParams &params) {
-    std::vector<unsigned char> sourcedata =
-        params.Base58Prefix(CChainParams::PUBKEY_ADDRESS);
-    sourcedata.insert(sourcedata.end(), dummydata,
-                      dummydata + sizeof(dummydata));
-    for (int i = 0; i < 256; ++i) { // Try every trailing byte
-        std::string s = EncodeBase58(sourcedata.data(),
-                                     sourcedata.data() + sourcedata.size());
-        if (!IsValidDestinationString(s)) {
-            return s;
-        }
-        sourcedata[sourcedata.size() - 1] += 1;
+    // Checksum is at the end of the address. Swapping chars to make it invalid.
+    std::swap(addr[addr.size() - 1], addr[addr.size() - 2]);
+    if (!IsValidDestinationString(addr)) {
+        return addr;
     }
     return "";
+}
+
+std::string DummyAddress(const Config &config) {
+    // Just some dummy data to generate an convincing random-looking (but
+    // consistent) address
+    static const std::vector<uint8_t> dummydata = {
+        0xeb, 0x15, 0x23, 0x1d, 0xfc, 0xeb, 0x60, 0x92, 0x58, 0x86,
+        0xb6, 0x7d, 0x06, 0x52, 0x99, 0x92, 0x59, 0x15, 0xae, 0xb1};
+
+    const CTxDestination dstKey = CKeyID(uint160(dummydata));
+    return MakeAddrInvalid(EncodeDestination(dstKey, config));
+}
+
+// Addresses are stored in the database with the encoding that the client was
+// configured with at the time of creation.
+//
+// This converts to clients current configuration.
+QString convertToConfiguredAddressFormat(const Config &config,
+                                         const QString &addr) {
+    if (!IsValidDestinationString(addr.toStdString(),
+                                  config.GetChainParams())) {
+        // We have something sketchy as input. Do not try to convert.
+        return addr;
+    }
+    CTxDestination dst =
+        DecodeDestination(addr.toStdString(), config.GetChainParams());
+    return QString::fromStdString(EncodeDestination(dst, config));
 }
 
 void setupAddressWidget(QValidatedLineEdit *widget, QWidget *parent) {
@@ -143,9 +164,10 @@ void setupAddressWidget(QValidatedLineEdit *widget, QWidget *parent) {
     // and this is the only place, where this address is supplied.
     widget->setPlaceholderText(
         QObject::tr("Enter a Bitcoin address (e.g. %1)")
-            .arg(QString::fromStdString(DummyAddress(Params()))));
+            .arg(QString::fromStdString(DummyAddress(GetConfig()))));
 #endif
-    widget->setValidator(new BitcoinAddressEntryValidator(parent));
+    widget->setValidator(
+        new BitcoinAddressEntryValidator(Params().CashAddrPrefix(), parent));
     widget->setCheckValidator(new BitcoinAddressCheckValidator(parent));
 }
 
@@ -157,17 +179,43 @@ void setupAmountWidget(QLineEdit *widget, QWidget *parent) {
     widget->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
 }
 
-bool parseBitcoinURI(const QUrl &uri, SendCoinsRecipient *out) {
-    // return if URI is not valid or is no bitcoincash: URI
-    if (!uri.isValid() || uri.scheme() != URI_SCHEME) return false;
+QString bitcoinURIScheme(const CChainParams &params, bool useCashAddr) {
+    if (!useCashAddr) {
+        return "bitcoincash";
+    }
+    return QString::fromStdString(params.CashAddrPrefix());
+}
+
+QString bitcoinURIScheme(const Config &config) {
+    return bitcoinURIScheme(config.GetChainParams(),
+                            config.UseCashAddrEncoding());
+}
+
+static bool IsCashAddrEncoded(const QUrl &uri) {
+    const std::string addr = (uri.scheme() + ":" + uri.path()).toStdString();
+    auto decoded = cashaddr::Decode(addr, "");
+    return !decoded.first.empty();
+}
+
+bool parseBitcoinURI(const QString &scheme, const QUrl &uri,
+                     SendCoinsRecipient *out) {
+    // return if URI has wrong scheme.
+    if (!uri.isValid() || uri.scheme() != scheme) {
+        return false;
+    }
 
     SendCoinsRecipient rv;
-    rv.address = uri.path();
+    if (IsCashAddrEncoded(uri)) {
+        rv.address = uri.scheme() + ":" + uri.path();
+    } else {
+        // strip out uri scheme for base58 encoded addresses
+        rv.address = uri.path();
+    }
     // Trim any following forward slash which may have been added by the OS
     if (rv.address.endsWith("/")) {
         rv.address.truncate(rv.address.length() - 1);
     }
-    rv.amount = 0;
+    rv.amount = Amount(0);
 
 #if QT_VERSION < 0x050000
     QList<QPair<QString, QString>> items = uri.queryItems();
@@ -192,7 +240,7 @@ bool parseBitcoinURI(const QUrl &uri, SendCoinsRecipient *out) {
             fShouldReturnFalse = false;
         } else if (i->first == "amount") {
             if (!i->second.isEmpty()) {
-                if (!BitcoinUnits::parse(BitcoinUnits::BCC, i->second,
+                if (!BitcoinUnits::parse(BitcoinUnits::BCH, i->second,
                                          &rv.amount)) {
                     return false;
                 }
@@ -210,27 +258,31 @@ bool parseBitcoinURI(const QUrl &uri, SendCoinsRecipient *out) {
     return true;
 }
 
-bool parseBitcoinURI(QString uri, SendCoinsRecipient *out) {
-    // Convert bitcoincash:// to bitcoincash:
+bool parseBitcoinURI(const QString &scheme, QString uri,
+                     SendCoinsRecipient *out) {
     //
     //    Cannot handle this later, because bitcoincash://
     //    will cause Qt to see the part after // as host,
     //    which will lower-case it (and thus invalidate the address).
-    if (uri.startsWith(URI_SCHEME + "://", Qt::CaseInsensitive)) {
-        uri.replace(0, URI_SCHEME.length() + 3, URI_SCHEME + ":");
+    if (uri.startsWith(scheme + "://", Qt::CaseInsensitive)) {
+        uri.replace(0, scheme.length() + 3, scheme + ":");
     }
     QUrl uriInstance(uri);
-    return parseBitcoinURI(uriInstance, out);
+    return parseBitcoinURI(scheme, uriInstance, out);
 }
 
-QString formatBitcoinURI(const SendCoinsRecipient &info) {
-    QString ret = (URI_SCHEME + ":%1").arg(info.address);
+QString formatBitcoinURI(const Config &config, const SendCoinsRecipient &info) {
+    QString ret = info.address;
+    if (!config.UseCashAddrEncoding()) {
+        // prefix address with uri scheme for base58 encoded addresses.
+        ret = (bitcoinURIScheme(config) + ":%1").arg(ret);
+    }
     int paramCount = 0;
 
-    if (info.amount) {
+    if (info.amount != Amount(0)) {
         ret +=
             QString("?amount=%1")
-                .arg(BitcoinUnits::format(BitcoinUnits::BCC, info.amount, false,
+                .arg(BitcoinUnits::format(BitcoinUnits::BCH, info.amount, false,
                                           BitcoinUnits::separatorNever));
         paramCount++;
     }
@@ -251,8 +303,9 @@ QString formatBitcoinURI(const SendCoinsRecipient &info) {
     return ret;
 }
 
-bool isDust(const QString &address, const CAmount &amount) {
-    CTxDestination dest = DecodeDestination(address.toStdString());
+bool isDust(const QString &address, const Amount amount,
+            const CChainParams &chainParams) {
+    CTxDestination dest = DecodeDestination(address.toStdString(), chainParams);
     CScript script = GetScriptForDestination(dest);
     CTxOut txOut(amount, script);
     return txOut.IsDust(dustRelayFee);
@@ -392,10 +445,10 @@ bool isObscured(QWidget *w) {
 }
 
 void openDebugLogfile() {
-    boost::filesystem::path pathDebug = GetDataDir() / "debug.log";
+    fs::path pathDebug = GetDataDir() / "debug.log";
 
     /* Open debug.log with the associated application */
-    if (boost::filesystem::exists(pathDebug))
+    if (fs::exists(pathDebug))
         QDesktopServices::openUrl(
             QUrl::fromLocalFile(boostPathToQString(pathDebug)));
 }
@@ -583,7 +636,7 @@ TableViewLastColumnResizingFixer::TableViewLastColumnResizingFixer(
 }
 
 #ifdef WIN32
-static boost::filesystem::path StartupShortcutPath() {
+static fs::path StartupShortcutPath() {
     std::string chain = ChainNameFromCommandLine();
     if (chain == CBaseChainParams::MAIN)
         return GetSpecialFolderPath(CSIDL_STARTUP) / "Bitcoin.lnk";
@@ -596,12 +649,12 @@ static boost::filesystem::path StartupShortcutPath() {
 
 bool GetStartOnSystemStartup() {
     // check for Bitcoin*.lnk
-    return boost::filesystem::exists(StartupShortcutPath());
+    return fs::exists(StartupShortcutPath());
 }
 
 bool SetStartOnSystemStartup(bool fAutoStart) {
     // If the shortcut exists already, remove it for updating
-    boost::filesystem::remove(StartupShortcutPath());
+    fs::remove(StartupShortcutPath());
 
     if (fAutoStart) {
         CoInitialize(nullptr);
@@ -621,8 +674,8 @@ bool SetStartOnSystemStartup(bool fAutoStart) {
             QString strArgs = "-min";
             // Set -testnet /-regtest options
             strArgs += QString::fromStdString(strprintf(
-                " -testnet=%d -regtest=%d", GetBoolArg("-testnet", false),
-                GetBoolArg("-regtest", false)));
+                " -testnet=%d -regtest=%d", gArgs.GetBoolArg("-testnet", false),
+                gArgs.GetBoolArg("-regtest", false)));
 
 #ifdef UNICODE
             boost::scoped_array<TCHAR> args(new TCHAR[strArgs.length() + 1]);
@@ -673,9 +726,7 @@ bool SetStartOnSystemStartup(bool fAutoStart) {
 // Follow the Desktop Application Autostart Spec:
 // http://standards.freedesktop.org/autostart-spec/autostart-spec-latest.html
 
-static boost::filesystem::path GetAutostartDir() {
-    namespace fs = boost::filesystem;
-
+static fs::path GetAutostartDir() {
     char *pszConfigHome = getenv("XDG_CONFIG_HOME");
     if (pszConfigHome) return fs::path(pszConfigHome) / "autostart";
     char *pszHome = getenv("HOME");
@@ -683,7 +734,7 @@ static boost::filesystem::path GetAutostartDir() {
     return fs::path();
 }
 
-static boost::filesystem::path GetAutostartFilePath() {
+static fs::path GetAutostartFilePath() {
     std::string chain = ChainNameFromCommandLine();
     if (chain == CBaseChainParams::MAIN)
         return GetAutostartDir() / "bitcoin.desktop";
@@ -691,7 +742,7 @@ static boost::filesystem::path GetAutostartFilePath() {
 }
 
 bool GetStartOnSystemStartup() {
-    boost::filesystem::ifstream optionFile(GetAutostartFilePath());
+    fs::ifstream optionFile(GetAutostartFilePath());
     if (!optionFile.good()) return false;
     // Scan through file for "Hidden=true":
     std::string line;
@@ -708,7 +759,7 @@ bool GetStartOnSystemStartup() {
 
 bool SetStartOnSystemStartup(bool fAutoStart) {
     if (!fAutoStart)
-        boost::filesystem::remove(GetAutostartFilePath());
+        fs::remove(GetAutostartFilePath());
     else {
         char pszExePath[MAX_PATH + 1];
         memset(pszExePath, 0, sizeof(pszExePath));
@@ -716,10 +767,10 @@ bool SetStartOnSystemStartup(bool fAutoStart) {
             -1)
             return false;
 
-        boost::filesystem::create_directories(GetAutostartDir());
+        fs::create_directories(GetAutostartDir());
 
-        boost::filesystem::ofstream optionFile(
-            GetAutostartFilePath(), std::ios_base::out | std::ios_base::trunc);
+        fs::ofstream optionFile(GetAutostartFilePath(),
+                                std::ios_base::out | std::ios_base::trunc);
         if (!optionFile.good()) return false;
         std::string chain = ChainNameFromCommandLine();
         // Write a bitcoin.desktop file to the autostart directory:
@@ -731,8 +782,8 @@ bool SetStartOnSystemStartup(bool fAutoStart) {
             optionFile << strprintf("Name=Bitcoin (%s)\n", chain);
         optionFile << "Exec=" << pszExePath
                    << strprintf(" -min -testnet=%d -regtest=%d\n",
-                                GetBoolArg("-testnet", false),
-                                GetBoolArg("-regtest", false));
+                                gArgs.GetBoolArg("-testnet", false),
+                                gArgs.GetBoolArg("-regtest", false));
         optionFile << "Terminal=false\n";
         optionFile << "Hidden=false\n";
         optionFile.close();
@@ -868,20 +919,20 @@ void setClipboard(const QString &str) {
 }
 
 #if BOOST_FILESYSTEM_VERSION >= 3
-boost::filesystem::path qstringToBoostPath(const QString &path) {
-    return boost::filesystem::path(path.toStdString(), utf8);
+fs::path qstringToBoostPath(const QString &path) {
+    return fs::path(path.toStdString(), utf8);
 }
 
-QString boostPathToQString(const boost::filesystem::path &path) {
+QString boostPathToQString(const fs::path &path) {
     return QString::fromStdString(path.string(utf8));
 }
 #else
 #warning Conversion between boost path and QString can use invalid character encoding with boost_filesystem v2 and older
-boost::filesystem::path qstringToBoostPath(const QString &path) {
-    return boost::filesystem::path(path.toStdString());
+fs::path qstringToBoostPath(const QString &path) {
+    return fs::path(path.toStdString());
 }
 
-QString boostPathToQString(const boost::filesystem::path &path) {
+QString boostPathToQString(const fs::path &path) {
     return QString::fromStdString(path.string());
 }
 #endif

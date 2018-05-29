@@ -7,12 +7,28 @@
 #define BITCOIN_CHAIN_H
 
 #include "arith_uint256.h"
+#include "consensus/params.h"
 #include "pow.h"
 #include "primitives/block.h"
 #include "tinyformat.h"
 #include "uint256.h"
 
+#include <unordered_map>
 #include <vector>
+
+/**
+ * Maximum amount of time that a block timestamp is allowed to exceed the
+ * current network-adjusted time before the block will be accepted.
+ */
+static const int64_t MAX_FUTURE_BLOCK_TIME = 2 * 60 * 60;
+
+/**
+ * Timestamp window used as a grace period by code that compares external
+ * timestamps (such as timestamps passed to RPCs, or wallet key creation times)
+ * to block timestamps. This should be set at least as high as
+ * MAX_FUTURE_BLOCK_TIME.
+ */
+static const int64_t TIMESTAMP_WINDOW = MAX_FUTURE_BLOCK_TIME;
 
 class CBlockFileInfo {
 public:
@@ -114,17 +130,23 @@ struct CDiskBlockPos {
     }
 };
 
-enum BlockStatus : uint32_t {
-    //! Unused.
-    BLOCK_VALID_UNKNOWN = 0,
+enum class BlockValidity : uint32_t {
+    /**
+     * Unused.
+     */
+    UNKNOWN = 0,
 
-    //! Parsed, version ok, hash satisfies claimed PoW, 1 <= vtx count <= max,
-    //! timestamp not in future
-    BLOCK_VALID_HEADER = 1,
+    /**
+     * Parsed, version ok, hash satisfies claimed PoW, 1 <= vtx count <= max,
+     * timestamp not in future.
+     */
+    HEADER = 1,
 
-    //! All parent headers found, difficulty matches, timestamp >= median
-    //! previous, checkpoint. Implies all parents are also at least TREE.
-    BLOCK_VALID_TREE = 2,
+    /**
+     * All parent headers found, difficulty matches, timestamp >= median
+     * previous, checkpoint. Implies all parents are also at least TREE.
+     */
+    TREE = 2,
 
     /**
      * Only first tx is coinbase, 2 <= coinbase input script length <= 100,
@@ -133,32 +155,118 @@ enum BlockStatus : uint32_t {
      * When all parent blocks also have TRANSACTIONS, CBlockIndex::nChainTx will
      * be set.
      */
-    BLOCK_VALID_TRANSACTIONS = 3,
+    TRANSACTIONS = 3,
 
-    //! Outputs do not overspend inputs, no double spends, coinbase output ok,
-    //! no immature coinbase spends, BIP30.
-    //! Implies all parents are also at least CHAIN.
-    BLOCK_VALID_CHAIN = 4,
+    /**
+     * Outputs do not overspend inputs, no double spends, coinbase output ok, no
+     * immature coinbase spends, BIP30.
+     * Implies all parents are also at least CHAIN.
+     */
+    CHAIN = 4,
 
-    //! Scripts & signatures ok. Implies all parents are also at least SCRIPTS.
-    BLOCK_VALID_SCRIPTS = 5,
+    /**
+     * Scripts & signatures ok. Implies all parents are also at least SCRIPTS.
+     */
+    SCRIPTS = 5,
+};
 
-    //! All validity bits.
+enum BlockStatusEnum : uint32_t {
+    /**
+     * Validity levels.
+     */
+    BLOCK_VALID_UNKNOWN = uint32_t(BlockValidity::UNKNOWN),
+    BLOCK_VALID_HEADER = uint32_t(BlockValidity::HEADER),
+    BLOCK_VALID_TREE = uint32_t(BlockValidity::TREE),
+    BLOCK_VALID_TRANSACTIONS = uint32_t(BlockValidity::TRANSACTIONS),
+    BLOCK_VALID_CHAIN = uint32_t(BlockValidity::CHAIN),
+    BLOCK_VALID_SCRIPTS = uint32_t(BlockValidity::SCRIPTS),
+
+    /**
+     * All validity bits.
+     */
     BLOCK_VALID_MASK = BLOCK_VALID_HEADER | BLOCK_VALID_TREE |
                        BLOCK_VALID_TRANSACTIONS | BLOCK_VALID_CHAIN |
                        BLOCK_VALID_SCRIPTS,
 
-    //!< full block available in blk*.dat
+    // Just a helper
+    BLOCK_HAVE_NOTHING = 0,
+
+    // Full block available in blk*.dat
     BLOCK_HAVE_DATA = 8,
-    //!< undo data available in rev*.dat
+    // Undo data available in rev*.dat
     BLOCK_HAVE_UNDO = 16,
     BLOCK_HAVE_MASK = BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO,
 
-    //!< stage after last reached validness failed
+    // The block is invalid.
     BLOCK_FAILED_VALID = 32,
-    //!< descends from failed block
+    // The block has an invalid parent.
     BLOCK_FAILED_CHILD = 64,
     BLOCK_FAILED_MASK = BLOCK_FAILED_VALID | BLOCK_FAILED_CHILD,
+};
+
+struct BlockStatus {
+private:
+    uint32_t status;
+
+    explicit BlockStatus(uint32_t nStatusIn) : status(nStatusIn) {}
+
+public:
+    explicit BlockStatus() : status(BLOCK_VALID_UNKNOWN) {}
+
+    BlockValidity getValidity() const {
+        return BlockValidity(status & BLOCK_VALID_MASK);
+    }
+
+    BlockStatus withValidity(BlockValidity validity) const {
+        return BlockStatus((status & ~BLOCK_VALID_MASK) | uint32_t(validity));
+    }
+
+    bool hasData() const { return status & BLOCK_HAVE_DATA; }
+    BlockStatus withData(bool hasData = true) const {
+        return BlockStatus((status & ~BLOCK_HAVE_DATA) |
+                           (hasData ? BLOCK_HAVE_DATA : BLOCK_HAVE_NOTHING));
+    }
+
+    bool hasUndo() const { return status & BLOCK_HAVE_UNDO; }
+    BlockStatus withUndo(bool hasUndo = true) const {
+        return BlockStatus((status & ~BLOCK_HAVE_UNDO) |
+                           (hasUndo ? BLOCK_HAVE_UNDO : BLOCK_HAVE_NOTHING));
+    }
+
+    /**
+     * Check whether this block index entry is valid up to the passed validity
+     * level.
+     */
+    bool isValid(enum BlockValidity nUpTo = BlockValidity::TRANSACTIONS) const {
+        if (status & BLOCK_FAILED_MASK) {
+            return false;
+        }
+
+        return getValidity() >= nUpTo;
+    }
+
+    // To transition from this and the plain old intereger.
+    // TODO: delete.
+    uint32_t operator&(uint32_t rhs) const { return status & rhs; }
+
+    BlockStatus &operator&=(uint32_t rhs) {
+        this->status &= rhs;
+        return *this;
+    }
+    BlockStatus &operator|=(uint32_t rhs) {
+        this->status |= rhs;
+        return *this;
+    }
+
+    operator bool() const { return status != 0; }
+    operator uint32_t() const { return status; }
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream &s, Operation ser_action) {
+        READWRITE(VARINT(status));
+    }
 };
 
 /**
@@ -208,7 +316,7 @@ public:
     unsigned int nChainTx;
 
     //! Verification status of this block. See enum BlockStatus
-    uint32_t nStatus;
+    BlockStatus nStatus;
 
     //! block header
     int32_t nVersion;
@@ -220,6 +328,9 @@ public:
     //! (memory only) Sequential id assigned to distinguish order in which
     //! blocks are received.
     int32_t nSequenceId;
+
+    //! (memory only) block header metadata
+    uint64_t nTimeReceived;
 
     //! (memory only) Maximum nTime in the chain upto and including this block.
     unsigned int nTimeMax;
@@ -235,13 +346,14 @@ public:
         nChainWork = arith_uint256();
         nTx = 0;
         nChainTx = 0;
-        nStatus = 0;
+        nStatus = BlockStatus();
         nSequenceId = 0;
         nTimeMax = 0;
 
         nVersion = 0;
         hashMerkleRoot = uint256();
         nTime = 0;
+        nTimeReceived = 0;
         nBits = 0;
         nNonce = 0;
     }
@@ -254,13 +366,18 @@ public:
         nVersion = block.nVersion;
         hashMerkleRoot = block.hashMerkleRoot;
         nTime = block.nTime;
+        // Default to block time if nTimeReceived is never set, which
+        // in effect assumes that this block is honestly mined.
+        // Note that nTimeReceived isn't written to disk, so blocks read from
+        // disk will be assumed to be honestly mined.
+        nTimeReceived = block.nTime;
         nBits = block.nBits;
         nNonce = block.nNonce;
     }
 
     CDiskBlockPos GetBlockPos() const {
         CDiskBlockPos ret;
-        if (nStatus & BLOCK_HAVE_DATA) {
+        if (nStatus.hasData()) {
             ret.nFile = nFile;
             ret.nPos = nDataPos;
         }
@@ -269,7 +386,7 @@ public:
 
     CDiskBlockPos GetUndoPos() const {
         CDiskBlockPos ret;
-        if (nStatus & BLOCK_HAVE_UNDO) {
+        if (nStatus.hasUndo()) {
             ret.nFile = nFile;
             ret.nPos = nUndoPos;
         }
@@ -291,9 +408,11 @@ public:
 
     uint256 GetBlockHash() const { return *phashBlock; }
 
-    int64_t GetBlockTime() const { return (int64_t)nTime; }
+    int64_t GetBlockTime() const { return int64_t(nTime); }
 
-    int64_t GetBlockTimeMax() const { return (int64_t)nTimeMax; }
+    int64_t GetBlockTimeMax() const { return int64_t(nTimeMax); }
+
+    int64_t GetHeaderTimeReceived() const { return nTimeReceived; }
 
     enum { nMedianTimeSpan = 11 };
 
@@ -320,28 +439,24 @@ public:
 
     //! Check whether this block index entry is valid up to the passed validity
     //! level.
-    bool IsValid(enum BlockStatus nUpTo = BLOCK_VALID_TRANSACTIONS) const {
-        // Only validity flags allowed.
-        assert(!(nUpTo & ~BLOCK_VALID_MASK));
-        if (nStatus & BLOCK_FAILED_MASK) {
-            return false;
-        }
-        return ((nStatus & BLOCK_VALID_MASK) >= nUpTo);
+    bool IsValid(enum BlockValidity nUpTo = BlockValidity::TRANSACTIONS) const {
+        return nStatus.isValid(nUpTo);
     }
 
     //! Raise the validity level of this block index entry.
     //! Returns true if the validity was changed.
-    bool RaiseValidity(enum BlockStatus nUpTo) {
+    bool RaiseValidity(enum BlockValidity nUpTo) {
         // Only validity flags allowed.
-        assert(!(nUpTo & ~BLOCK_VALID_MASK));
         if (nStatus & BLOCK_FAILED_MASK) {
             return false;
         }
-        if ((nStatus & BLOCK_VALID_MASK) < nUpTo) {
-            nStatus = (nStatus & ~BLOCK_VALID_MASK) | nUpTo;
-            return true;
+
+        if (BlockValidity(nStatus & BLOCK_VALID_MASK) >= nUpTo) {
+            return false;
         }
-        return false;
+
+        nStatus = nStatus.withValidity(nUpTo);
+        return true;
     }
 
     //! Build the skiplist pointer for this entry.
@@ -351,6 +466,16 @@ public:
     CBlockIndex *GetAncestor(int height);
     const CBlockIndex *GetAncestor(int height) const;
 };
+
+/**
+ * Maintain a map of CBlockIndex for all known headers.
+ */
+struct BlockHasher {
+    size_t operator()(const uint256 &hash) const { return hash.GetCheapHash(); }
+};
+
+typedef std::unordered_map<uint256, CBlockIndex *, BlockHasher> BlockMap;
+extern BlockMap mapBlockIndex;
 
 arith_uint256 GetBlockProof(const CBlockIndex &block);
 
@@ -363,6 +488,11 @@ int64_t GetBlockProofEquivalentTime(const CBlockIndex &to,
                                     const CBlockIndex &from,
                                     const CBlockIndex &tip,
                                     const Consensus::Params &);
+/**
+ * Find the forking point between two chain tips.
+ */
+const CBlockIndex *LastCommonAncestor(const CBlockIndex *pa,
+                                      const CBlockIndex *pb);
 
 /** Used to marshal pointers into hashes for db storage. */
 class CDiskBlockIndex : public CBlockIndex {
@@ -385,15 +515,15 @@ public:
         }
 
         READWRITE(VARINT(nHeight));
-        READWRITE(VARINT(nStatus));
+        READWRITE(nStatus);
         READWRITE(VARINT(nTx));
-        if (nStatus & (BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO)) {
+        if (nStatus.hasData() || nStatus.hasUndo()) {
             READWRITE(VARINT(nFile));
         }
-        if (nStatus & BLOCK_HAVE_DATA) {
+        if (nStatus.hasData()) {
             READWRITE(VARINT(nDataPos));
         }
-        if (nStatus & BLOCK_HAVE_UNDO) {
+        if (nStatus.hasUndo()) {
             READWRITE(VARINT(nUndoPos));
         }
 
@@ -426,7 +556,9 @@ public:
     }
 };
 
-/** An in-memory indexed chain of blocks. */
+/**
+ * An in-memory indexed chain of blocks.
+ */
 class CChain {
 private:
     std::vector<CBlockIndex *> vChain;

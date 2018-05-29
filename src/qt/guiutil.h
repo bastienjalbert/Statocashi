@@ -6,6 +6,7 @@
 #define BITCOIN_QT_GUIUTIL_H
 
 #include "amount.h"
+#include "fs.h"
 
 #include <QEvent>
 #include <QHeaderView>
@@ -16,10 +17,10 @@
 #include <QString>
 #include <QTableView>
 
-#include <boost/filesystem.hpp>
-
 class QValidatedLineEdit;
 class SendCoinsRecipient;
+class CChainParams;
+class Config;
 
 QT_BEGIN_NAMESPACE
 class QAbstractItemView;
@@ -33,7 +34,6 @@ QT_END_NAMESPACE
 /** Utility functions used by the Bitcoin Qt UI.
  */
 namespace GUIUtil {
-extern const QString URI_SCHEME;
 
 // Create human-readable string from date
 QString dateTimeStr(const QDateTime &datetime);
@@ -42,18 +42,30 @@ QString dateTimeStr(qint64 nTime);
 // Return a monospace font
 QFont fixedPitchFont();
 
+// Generate an invalid, but convincing address.
+std::string DummyAddress(const Config &config);
+
+// Convert an address into the user chosen format
+QString convertToConfiguredAddressFormat(const Config &config,
+                                         const QString &addr);
+
 // Set up widgets for address and amounts
 void setupAddressWidget(QValidatedLineEdit *widget, QWidget *parent);
 void setupAmountWidget(QLineEdit *widget, QWidget *parent);
 
+QString bitcoinURIScheme(const CChainParams &, bool useCashAddr);
+QString bitcoinURIScheme(const Config &);
 // Parse "bitcoincash:" URI into recipient object, return true on successful
 // parsing
-bool parseBitcoinURI(const QUrl &uri, SendCoinsRecipient *out);
-bool parseBitcoinURI(QString uri, SendCoinsRecipient *out);
-QString formatBitcoinURI(const SendCoinsRecipient &info);
+bool parseBitcoinURI(const QString &scheme, const QUrl &uri,
+                     SendCoinsRecipient *out);
+bool parseBitcoinURI(const QString &scheme, QString uri,
+                     SendCoinsRecipient *out);
+QString formatBitcoinURI(const Config &config, const SendCoinsRecipient &info);
 
 // Returns true if given address+amount meets "dust" definition
-bool isDust(const QString &address, const CAmount &amount);
+bool isDust(const QString &address, const Amount amount,
+            const CChainParams &chainParams);
 
 // HTML escaping for rich text controls
 QString HtmlEscape(const QString &str, bool fMultiLine = false);
@@ -145,7 +157,7 @@ public:
     explicit ToolTipToRichTextFilter(int size_threshold, QObject *parent = 0);
 
 protected:
-    bool eventFilter(QObject *obj, QEvent *evt);
+    bool eventFilter(QObject *obj, QEvent *evt) override;
 
 private:
     int size_threshold;
@@ -203,10 +215,10 @@ void restoreWindowGeometry(const QString &strSetting,
                            const QSize &defaultSizeIn, QWidget *parent);
 
 /* Convert QString to OS specific boost path through UTF-8 */
-boost::filesystem::path qstringToBoostPath(const QString &path);
+fs::path qstringToBoostPath(const QString &path);
 
 /* Convert OS specific boost path to QString through UTF-8 */
-QString boostPathToQString(const boost::filesystem::path &path);
+QString boostPathToQString(const fs::path &path);
 
 /* Convert seconds into a QString with days, hours, mins, secs */
 QString formatDurationStr(int secs);
@@ -233,7 +245,7 @@ Q_SIGNALS:
     void clicked(const QPoint &point);
 
 protected:
-    void mouseReleaseEvent(QMouseEvent *event);
+    void mouseReleaseEvent(QMouseEvent *event) override;
 };
 
 class ClickableProgressBar : public QProgressBar {
@@ -246,7 +258,7 @@ Q_SIGNALS:
     void clicked(const QPoint &point);
 
 protected:
-    void mouseReleaseEvent(QMouseEvent *event);
+    void mouseReleaseEvent(QMouseEvent *event) override;
 };
 
 #if defined(Q_OS_MAC) && QT_VERSION >= 0x050000
@@ -254,7 +266,7 @@ protected:
 // https://bugreports.qt-project.org/browse/QTBUG-15631
 // QProgressBar uses around 10% CPU even when app is in background
 class ProgressBar : public ClickableProgressBar {
-    bool event(QEvent *e) {
+    bool event(QEvent *e) override {
         return (e->type() != QEvent::StyleAnimationUpdate)
                    ? QProgressBar::event(e)
                    : false;

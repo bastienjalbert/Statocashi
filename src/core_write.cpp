@@ -4,7 +4,7 @@
 
 #include "core_io.h"
 
-#include "base58.h"
+#include "dstencode.h"
 #include "primitives/transaction.h"
 #include "script/script.h"
 #include "script/standard.h"
@@ -196,8 +196,8 @@ void TxToUniv(const CTransaction &tx, const uint256 &hashBlock,
             in.pushKV("coinbase",
                       HexStr(txin.scriptSig.begin(), txin.scriptSig.end()));
         } else {
-            in.pushKV("txid", txin.prevout.hash.GetHex());
-            in.pushKV("vout", (int64_t)txin.prevout.n);
+            in.pushKV("txid", txin.prevout.GetTxId().GetHex());
+            in.pushKV("vout", int64_t(txin.prevout.GetN()));
             UniValue o(UniValue::VOBJ);
             o.pushKV("asm", ScriptToAsmStr(txin.scriptSig, true));
             o.pushKV("hex",
@@ -217,8 +217,7 @@ void TxToUniv(const CTransaction &tx, const uint256 &hashBlock,
 
         UniValue out(UniValue::VOBJ);
 
-        UniValue outValue(UniValue::VNUM,
-                          FormatMoney(txout.nValue.GetSatoshis()));
+        UniValue outValue(UniValue::VNUM, FormatMoney(txout.nValue));
         out.pushKV("value", outValue);
         out.pushKV("n", (int64_t)i);
 

@@ -6,15 +6,48 @@
 #define BITCOIN_TEST_TEST_BITCOIN_H
 
 #include "chainparamsbase.h"
+#include "fs.h"
 #include "key.h"
 #include "pubkey.h"
+#include "random.h"
 #include "txdb.h"
 #include "txmempool.h"
 
-#include <boost/filesystem.hpp>
 #include <boost/thread.hpp>
 
-/** Basic testing setup.
+extern uint256 insecure_rand_seed;
+extern FastRandomContext insecure_rand_ctx;
+
+static inline void SeedInsecureRand(bool fDeterministic = false) {
+    if (fDeterministic) {
+        insecure_rand_seed = uint256();
+    } else {
+        insecure_rand_seed = GetRandHash();
+    }
+    insecure_rand_ctx = FastRandomContext(insecure_rand_seed);
+}
+
+static inline uint32_t insecure_rand() {
+    return insecure_rand_ctx.rand32();
+}
+static inline uint256 InsecureRand256() {
+    return insecure_rand_ctx.rand256();
+}
+static inline uint64_t InsecureRandBits(int bits) {
+    return insecure_rand_ctx.randbits(bits);
+}
+static inline uint64_t InsecureRandRange(uint64_t range) {
+    return insecure_rand_ctx.randrange(range);
+}
+static inline bool InsecureRandBool() {
+    return insecure_rand_ctx.randbool();
+}
+static inline std::vector<uint8_t> InsecureRandBytes(size_t len) {
+    return insecure_rand_ctx.randbytes(len);
+}
+
+/**
+ * Basic testing setup.
  * This just configures logging and chain parameters.
  */
 struct BasicTestingSetup {
@@ -30,7 +63,7 @@ struct BasicTestingSetup {
 class CConnman;
 struct TestingSetup : public BasicTestingSetup {
     CCoinsViewDB *pcoinsdbview;
-    boost::filesystem::path pathTemp;
+    fs::path pathTemp;
     boost::thread_group threadGroup;
     CConnman *connman;
 
@@ -39,7 +72,7 @@ struct TestingSetup : public BasicTestingSetup {
 };
 
 class CBlock;
-struct CMutableTransaction;
+class CMutableTransaction;
 class CScript;
 
 //
@@ -67,7 +100,7 @@ class CTxMemPool;
 
 struct TestMemPoolEntryHelper {
     // Default values
-    CAmount nFee;
+    Amount nFee;
     int64_t nTime;
     double dPriority;
     unsigned int nHeight;
@@ -84,7 +117,7 @@ struct TestMemPoolEntryHelper {
     CTxMemPoolEntry FromTx(const CTransaction &tx, CTxMemPool *pool = nullptr);
 
     // Change the default value
-    TestMemPoolEntryHelper &Fee(CAmount _fee) {
+    TestMemPoolEntryHelper &Fee(Amount _fee) {
         nFee = _fee;
         return *this;
     }

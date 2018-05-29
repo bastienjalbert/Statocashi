@@ -16,24 +16,21 @@ class QValueComboBox;
 QT_END_NAMESPACE
 
 /** Widget for entering bitcoin amounts.
-  */
+ */
 class BitcoinAmountField : public QWidget {
     Q_OBJECT
 
-    // ugly hack: for some unknown reason CAmount (instead of qint64) does not
-    // work here as expected
-    // discussion: https://github.com/bitcoin/bitcoin/pull/5117
     Q_PROPERTY(
-        qint64 value READ value WRITE setValue NOTIFY valueChanged USER true)
+        Amount value READ value WRITE setValue NOTIFY valueChanged USER true)
 
 public:
     explicit BitcoinAmountField(QWidget *parent = 0);
 
-    CAmount value(bool *value = 0) const;
-    void setValue(const CAmount &value);
+    Amount value(bool *value = 0) const;
+    void setValue(const Amount value);
 
     /** Set single step in satoshis **/
-    void setSingleStep(const CAmount &step);
+    void setSingleStep(const Amount step);
 
     /** Make read-only **/
     void setReadOnly(bool fReadOnly);
@@ -64,7 +61,7 @@ Q_SIGNALS:
 
 protected:
     /** Intercept focus-in event and ',' key presses */
-    bool eventFilter(QObject *object, QEvent *event);
+    bool eventFilter(QObject *object, QEvent *event) override;
 
 private:
     AmountSpinBox *amount;

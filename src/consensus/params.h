@@ -50,10 +50,12 @@ struct Params {
     int BIP66Height;
     /** Block height at which UAHF kicks in */
     int uahfHeight;
-    /** Block height at which OP_RETURN replay protection stops */
-    int antiReplayOpReturnSunsetHeight;
-    /** Committed OP_RETURN value for replay protection */
-    std::vector<uint8_t> antiReplayOpReturnCommitment;
+    /** Block height at which the new DAA becomes active */
+    int daaHeight;
+    /** Unix time used for MTP activation of May 15 2018, hardfork */
+    int monolithActivationTime;
+    /** Unix time used for MTP activation of Nov 15 2018, hardfork */
+    int magneticAnomalyActivationTime;
     /**
      * Minimum blocks including miner confirmation of the total of 2016 blocks
      * in a retargeting period, (nPowTargetTimespan / nPowTargetSpacing) which
@@ -74,9 +76,6 @@ struct Params {
     }
     uint256 nMinimumChainWork;
     uint256 defaultAssumeValid;
-
-    /** Activation time at which the cash HF kicks in. */
-    int64_t cashHardForkActivationTime;
 };
 } // namespace Consensus
 

@@ -192,12 +192,12 @@ int main(int argc, char **argv) {
             break;
         }
         case CMESSAGEHEADER_DESERIALIZE: {
-            CMessageHeader::MessageStartChars pchMessageStart = {0x00, 0x00,
-                                                                 0x00, 0x00};
+            CMessageHeader::MessageMagic pchMessageStart = {
+                {0x00, 0x00, 0x00, 0x00}};
             try {
                 CMessageHeader mh(pchMessageStart);
                 ds >> mh;
-                if (!mh.IsValid(pchMessageStart)) {
+                if (!mh.IsValidWithoutConfig(pchMessageStart)) {
                     return 0;
                 }
             } catch (const std::ios_base::failure &e) {

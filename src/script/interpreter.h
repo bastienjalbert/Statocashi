@@ -8,6 +8,7 @@
 
 #include "primitives/transaction.h"
 #include "script_error.h"
+#include "sighashtype.h"
 
 #include <cstdint>
 #include <string>
@@ -17,15 +18,6 @@ class CPubKey;
 class CScript;
 class CTransaction;
 class uint256;
-
-/** Signature hash types/flags */
-enum {
-    SIGHASH_ALL = 1,
-    SIGHASH_NONE = 2,
-    SIGHASH_SINGLE = 3,
-    SIGHASH_FORKID = 0x40,
-    SIGHASH_ANYONECANPAY = 0x80,
-};
 
 /** Script verification flags */
 enum {
@@ -95,12 +87,7 @@ enum {
     // See BIP112 for details
     SCRIPT_VERIFY_CHECKSEQUENCEVERIFY = (1U << 10),
 
-    // Making v1-v16 witness program non-standard
-    //
-    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM = (1U << 12),
-
-    // Segwit script only: Require the argument of OP_IF/NOTIF to be exactly
-    // 0x01 or empty vector
+    // Require the argument of OP_IF/NOTIF to be exactly 0x01 or empty vector
     //
     SCRIPT_VERIFY_MINIMALIF = (1U << 13),
 
@@ -115,13 +102,22 @@ enum {
     // Do we accept signature using SIGHASH_FORKID
     //
     SCRIPT_ENABLE_SIGHASH_FORKID = (1U << 16),
+
+    // Do we accept activate replay protection using a different fork id.
+    //
+    SCRIPT_ENABLE_REPLAY_PROTECTION = (1U << 17),
+
+    // Enable new opcodes.
+    //
+    SCRIPT_ENABLE_MONOLITH_OPCODES = (1U << 18),
 };
 
 bool CheckSignatureEncoding(const std::vector<uint8_t> &vchSig, uint32_t flags,
                             ScriptError *serror);
 
 uint256 SignatureHash(const CScript &scriptCode, const CTransaction &txTo,
-                      unsigned int nIn, uint32_t nHashType, const Amount amount,
+                      unsigned int nIn, SigHashType sigHashType,
+                      const Amount amount,
                       const PrecomputedTransactionData *cache = nullptr,
                       uint32_t flags = SCRIPT_ENABLE_SIGHASH_FORKID);
 
@@ -166,9 +162,9 @@ public:
         : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(&txdataIn) {}
     bool CheckSig(const std::vector<uint8_t> &scriptSig,
                   const std::vector<uint8_t> &vchPubKey,
-                  const CScript &scriptCode, uint32_t flags) const;
-    bool CheckLockTime(const CScriptNum &nLockTime) const;
-    bool CheckSequence(const CScriptNum &nSequence) const;
+                  const CScript &scriptCode, uint32_t flags) const override;
+    bool CheckLockTime(const CScriptNum &nLockTime) const override;
+    bool CheckSequence(const CScriptNum &nSequence) const override;
 };
 
 class MutableTransactionSignatureChecker : public TransactionSignatureChecker {

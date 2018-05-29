@@ -1,6 +1,8 @@
 #include "bitcoin.h"
 #include "clientversion.h"
 #include "db.h"
+#include "dns.h"
+#include "protocol.h"
 #include "streams.h"
 
 #include <algorithm>
@@ -11,8 +13,6 @@
 #include <getopt.h>
 #include <pthread.h>
 #include <signal.h>
-
-bool fTestNet = false;
 
 class CDnsSeedOpts {
 public:
@@ -79,8 +79,9 @@ public:
                 {"help", no_argument, 0, 'h'},
                 {0, 0, 0, 0}};
             int option_index = 0;
-            int c = getopt_long(argc, argv, "h:n:m:t:p:d:o:i:k:w:",
-                                long_options, &option_index);
+            int c =
+                getopt_long(argc, argv, "h:n:m:t:p:d:o:i:k:w:", long_options,
+                            &option_index);
             if (c == -1) break;
             switch (c) {
                 case 'h': {
@@ -152,13 +153,10 @@ public:
             }
         }
         if (filter_whitelist.empty()) {
-            filter_whitelist.insert(NODE_NETWORK | NODE_BITCOIN_CASH);
-            filter_whitelist.insert(NODE_NETWORK | NODE_BITCOIN_CASH |
-                                    NODE_BLOOM);
-            filter_whitelist.insert(NODE_NETWORK | NODE_BITCOIN_CASH |
-                                    NODE_XTHIN);
-            filter_whitelist.insert(NODE_NETWORK | NODE_BITCOIN_CASH |
-                                    NODE_BLOOM | NODE_XTHIN);
+            filter_whitelist.insert(NODE_NETWORK);
+            filter_whitelist.insert(NODE_NETWORK | NODE_BLOOM);
+            filter_whitelist.insert(NODE_NETWORK | NODE_XTHIN);
+            filter_whitelist.insert(NODE_NETWORK | NODE_BLOOM | NODE_XTHIN);
         }
         if (host != nullptr && ns == nullptr) showHelp = true;
         if (showHelp) fprintf(stderr, help, argv[0]);
@@ -452,16 +450,16 @@ static const std::string testnet_seeds[] = {
     "testnet-seeder.criptolayer.net", ""};
 static const std::string *seeds = mainnet_seeds;
 
+const static unsigned int MAX_HOSTS_PER_SEED = 128;
+
 extern "C" void *ThreadSeeder(void *) {
-    if (!fTestNet) {
-        db.Add(CService("kjy2eqzk4zwi5zd3.onion", 8333), true);
-    }
     do {
         for (int i = 0; seeds[i] != ""; i++) {
             std::vector<CNetAddr> ips;
-            LookupHost(seeds[i].c_str(), ips);
+            LookupHost(seeds[i].c_str(), ips, MAX_HOSTS_PER_SEED, true);
             for (auto &ip : ips) {
-                db.Add(CService(ip, GetDefaultPort()), true);
+                db.Add(CAddress(CService(ip, GetDefaultPort()), ServiceFlags()),
+                       true);
             }
         }
         Sleep(1800000);
@@ -484,14 +482,14 @@ int main(int argc, char **argv) {
     }
     printf("\n");
     if (opts.tor) {
-        CService service(opts.tor, 9050);
+        CService service(LookupNumeric(opts.tor, 9050));
         if (service.IsValid()) {
             printf("Using Tor proxy at %s\n", service.ToStringIPPort().c_str());
             SetProxy(NET_TOR, service);
         }
     }
     if (opts.ipv4_proxy) {
-        CService service(opts.ipv4_proxy, 9050);
+        CService service(LookupNumeric(opts.ipv4_proxy, 9050));
         if (service.IsValid()) {
             printf("Using IPv4 proxy at %s\n",
                    service.ToStringIPPort().c_str());
@@ -499,7 +497,7 @@ int main(int argc, char **argv) {
         }
     }
     if (opts.ipv6_proxy) {
-        CService service(opts.ipv6_proxy, 9050);
+        CService service(LookupNumeric(opts.ipv6_proxy, 9050));
         if (service.IsValid()) {
             printf("Using IPv6 proxy at %s\n",
                    service.ToStringIPPort().c_str());
@@ -509,10 +507,10 @@ int main(int argc, char **argv) {
     bool fDNS = true;
     if (opts.fUseTestNet) {
         printf("Using testnet.\n");
-        pchMessageStart[0] = 0xf4;
-        pchMessageStart[1] = 0xe5;
-        pchMessageStart[2] = 0xf3;
-        pchMessageStart[3] = 0xf4;
+        netMagic[0] = 0xf4;
+        netMagic[1] = 0xe5;
+        netMagic[2] = 0xf3;
+        netMagic[3] = 0xf4;
         seeds = testnet_seeds;
         fTestNet = true;
     }

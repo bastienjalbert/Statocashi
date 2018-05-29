@@ -37,8 +37,8 @@ int CAddrInfo::GetNewBucket(const uint256 &nKey, const CNetAddr &src) const {
 
 int CAddrInfo::GetBucketPosition(const uint256 &nKey, bool fNew,
                                  int nBucket) const {
-    uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << (fNew ? 'N' : 'K')
-                                                  << nBucket << GetKey())
+    uint64_t hash1 = (CHashWriter(SER_GETHASH, 0)
+                      << nKey << (fNew ? 'N' : 'K') << nBucket << GetKey())
                          .GetHash()
                          .GetCheapHash();
     return hash1 % ADDRMAN_BUCKET_SIZE;
@@ -235,7 +235,7 @@ void CAddrMan::Good_(const CService &addr, int64_t nTime) {
     // TODO: maybe re-add the node, but for now, just bail out
     if (nUBucket == -1) return;
 
-    LogPrint("addrman", "Moving %s to tried\n", addr.ToString());
+    LogPrint(BCLog::ADDRMAN, "Moving %s to tried\n", addr.ToString());
 
     // move nId to the tried tables
     MakeTried(info, nId);

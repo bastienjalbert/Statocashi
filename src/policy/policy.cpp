@@ -29,7 +29,9 @@
  */
 bool IsStandard(const CScript &scriptPubKey, txnouttype &whichType) {
     std::vector<std::vector<uint8_t>> vSolutions;
-    if (!Solver(scriptPubKey, whichType, vSolutions)) return false;
+    if (!Solver(scriptPubKey, whichType, vSolutions)) {
+        return false;
+    }
 
     if (whichType == TX_MULTISIG) {
         uint8_t m = vSolutions.front()[0];
@@ -37,10 +39,17 @@ bool IsStandard(const CScript &scriptPubKey, txnouttype &whichType) {
         // Support up to x-of-3 multisig txns as standard
         if (n < 1 || n > 3) return false;
         if (m < 1 || m > n) return false;
-    } else if (whichType == TX_NULL_DATA &&
-               (!fAcceptDatacarrier ||
-                scriptPubKey.size() > nMaxDatacarrierBytes))
-        return false;
+    } else if (whichType == TX_NULL_DATA) {
+        if (!fAcceptDatacarrier) {
+            return false;
+        }
+
+        unsigned nMaxDatacarrierBytes =
+            gArgs.GetArg("-datacarriersize", MAX_OP_RETURN_RELAY);
+        if (scriptPubKey.size() > nMaxDatacarrierBytes) {
+            return false;
+        }
+    }
 
     return whichType != TX_NONSTANDARD;
 }
@@ -55,7 +64,7 @@ bool IsStandardTx(const CTransaction &tx, std::string &reason) {
     // almost as much to process as they cost the sender in fees, because
     // computing signature hashes is O(ninputs*txsize). Limiting transactions
     // to MAX_STANDARD_TX_SIZE mitigates CPU exhaustion attacks.
-    unsigned int sz = GetTransactionSize(tx);
+    unsigned int sz = tx.GetTotalSize();
     if (sz >= MAX_STANDARD_TX_SIZE) {
         reason = "tx-size";
         return false;
@@ -86,9 +95,9 @@ bool IsStandardTx(const CTransaction &tx, std::string &reason) {
             return false;
         }
 
-        if (whichType == TX_NULL_DATA)
+        if (whichType == TX_NULL_DATA) {
             nDataOut++;
-        else if ((whichType == TX_MULTISIG) && (!fIsBareMultisigStd)) {
+        } else if ((whichType == TX_MULTISIG) && (!fIsBareMultisigStd)) {
             reason = "bare-multisig";
             return false;
         } else if (txout.IsDust(dustRelayFee)) {
@@ -113,23 +122,29 @@ bool AreInputsStandard(const CTransaction &tx,
         return true;
     }
 
-    for (unsigned int i = 0; i < tx.vin.size(); i++) {
+    for (size_t i = 0; i < tx.vin.size(); i++) {
         const CTxOut &prev = mapInputs.GetOutputFor(tx.vin[i]);
 
         std::vector<std::vector<uint8_t>> vSolutions;
         txnouttype whichType;
         // get the scriptPubKey corresponding to this input:
         const CScript &prevScript = prev.scriptPubKey;
-        if (!Solver(prevScript, whichType, vSolutions)) return false;
+        if (!Solver(prevScript, whichType, vSolutions)) {
+            return false;
+        }
 
         if (whichType == TX_SCRIPTHASH) {
             std::vector<std::vector<uint8_t>> stack;
             // convert the scriptSig into a stack, so we can inspect the
             // redeemScript
             if (!EvalScript(stack, tx.vin[i].scriptSig, SCRIPT_VERIFY_NONE,
-                            BaseSignatureChecker()))
+                            BaseSignatureChecker())) {
                 return false;
-            if (stack.empty()) return false;
+            }
+            if (stack.empty()) {
+                return false;
+            }
+
             CScript subscript(stack.back().begin(), stack.back().end());
             if (subscript.GetSigOpCount(true) > MAX_P2SH_SIGOPS) {
                 return false;
@@ -140,6 +155,5 @@ bool AreInputsStandard(const CTransaction &tx,
     return true;
 }
 
-CFeeRate incrementalRelayFee = CFeeRate(DEFAULT_INCREMENTAL_RELAY_FEE);
 CFeeRate dustRelayFee = CFeeRate(DUST_RELAY_TX_FEE);
 unsigned int nBytesPerSigOp = DEFAULT_BYTES_PER_SIGOP;

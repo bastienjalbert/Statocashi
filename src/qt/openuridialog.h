@@ -7,6 +7,8 @@
 
 #include <QDialog>
 
+class Config;
+
 namespace Ui {
 class OpenURIDialog;
 }
@@ -15,19 +17,20 @@ class OpenURIDialog : public QDialog {
     Q_OBJECT
 
 public:
-    explicit OpenURIDialog(QWidget *parent);
+    explicit OpenURIDialog(const Config *cfg, QWidget *parent);
     ~OpenURIDialog();
 
     QString getURI();
 
 protected Q_SLOTS:
-    void accept();
+    void accept() override;
 
 private Q_SLOTS:
     void on_selectFileButton_clicked();
 
 private:
     Ui::OpenURIDialog *ui;
+    const Config *cfg;
 };
 
 #endif // BITCOIN_QT_OPENURIDIALOG_H

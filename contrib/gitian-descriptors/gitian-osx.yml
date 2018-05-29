@@ -1,5 +1,5 @@
 ---
-name: "bitcoin-abc-0.16-osx"
+name: "bitcoin-abc-0.17-osx"
 enable_cache: true
 suites:
 - "xenial"
@@ -19,6 +19,7 @@ packages:
 - "faketime"
 - "bsdmainutils"
 - "cmake"
+- "ninja-build"
 - "imagemagick"
 - "libcap-dev"
 - "libz-dev"

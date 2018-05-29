@@ -8,17 +8,23 @@
 
 #include "arith_uint256.h"
 #include "chain.h"
+#include "chainparams.h"
+#include "config.h"
+#include "consensus/params.h"
 #include "primitives/block.h"
 #include "uint256.h"
 #include "util.h"
+#include "validation.h"
 
 /**
  * Compute the next required proof of work using the legacy Bitcoin difficulty
- * adjustement + Emergency Difficulty Adjustement (EDA).
+ * adjustment + Emergency Difficulty Adjustment (EDA).
  */
 static uint32_t GetNextEDAWorkRequired(const CBlockIndex *pindexPrev,
                                        const CBlockHeader *pblock,
-                                       const Consensus::Params &params) {
+                                       const Config &config) {
+    const Consensus::Params &params = config.GetChainParams().GetConsensus();
+
     // Only change once per difficulty adjustment interval
     uint32_t nHeight = pindexPrev->nHeight + 1;
     if (nHeight % params.DifficultyAdjustmentInterval() == 0) {
@@ -29,7 +35,7 @@ static uint32_t GetNextEDAWorkRequired(const CBlockIndex *pindexPrev,
         assert(pindexFirst);
 
         return CalculateNextWorkRequired(pindexPrev,
-                                         pindexFirst->GetBlockTime(), params);
+                                         pindexFirst->GetBlockTime(), config);
     }
 
     const uint32_t nProofOfWorkLimit =
@@ -55,13 +61,13 @@ static uint32_t GetNextEDAWorkRequired(const CBlockIndex *pindexPrev,
         return pindex->nBits;
     }
 
-    // We can't go bellow the minimum, so early bail.
+    // We can't go below the minimum, so bail early.
     uint32_t nBits = pindexPrev->nBits;
     if (nBits == nProofOfWorkLimit) {
         return nProofOfWorkLimit;
     }
 
-    // If producing the last 6 block took less than 12h, we keep the same
+    // If producing the last 6 blocks took less than 12h, we keep the same
     // difficulty.
     const CBlockIndex *pindex6 = pindexPrev->GetAncestor(nHeight - 7);
     assert(pindex6);
@@ -71,14 +77,15 @@ static uint32_t GetNextEDAWorkRequired(const CBlockIndex *pindexPrev,
         return nBits;
     }
 
-    // If producing the last 6 block took more than 12h, increase the difficulty
-    // target by 1/4 (which reduces the difficulty by 20%). This ensure the
-    // chain do not get stuck in case we lose hashrate abruptly.
+    // If producing the last 6 blocks took more than 12h, increase the
+    // difficulty target by 1/4 (which reduces the difficulty by 20%).
+    // This ensures that the chain does not get stuck in case we lose
+    // hashrate abruptly.
     arith_uint256 nPow;
     nPow.SetCompact(nBits);
     nPow += (nPow >> 2);
 
-    // Make sure we do not go bellow allowed values.
+    // Make sure we do not go below allowed values.
     const arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
     if (nPow > bnPowLimit) nPow = bnPowLimit;
 
@@ -86,8 +93,9 @@ static uint32_t GetNextEDAWorkRequired(const CBlockIndex *pindexPrev,
 }
 
 uint32_t GetNextWorkRequired(const CBlockIndex *pindexPrev,
-                             const CBlockHeader *pblock,
-                             const Consensus::Params &params) {
+                             const CBlockHeader *pblock, const Config &config) {
+    const Consensus::Params &params = config.GetChainParams().GetConsensus();
+
     // Genesis block
     if (pindexPrev == nullptr) {
         return UintToArith256(params.powLimit).GetCompact();
@@ -98,17 +106,18 @@ uint32_t GetNextWorkRequired(const CBlockIndex *pindexPrev,
         return pindexPrev->nBits;
     }
 
-    if (pindexPrev->GetMedianTimePast() >=
-        GetArg("-newdaaactivationtime", params.cashHardForkActivationTime)) {
-        return GetNextCashWorkRequired(pindexPrev, pblock, params);
+    if (IsDAAEnabled(config, pindexPrev)) {
+        return GetNextCashWorkRequired(pindexPrev, pblock, config);
     }
 
-    return GetNextEDAWorkRequired(pindexPrev, pblock, params);
+    return GetNextEDAWorkRequired(pindexPrev, pblock, config);
 }
 
 uint32_t CalculateNextWorkRequired(const CBlockIndex *pindexPrev,
                                    int64_t nFirstBlockTime,
-                                   const Consensus::Params &params) {
+                                   const Config &config) {
+    const Consensus::Params &params = config.GetChainParams().GetConsensus();
+
     if (params.fPowNoRetargeting) {
         return pindexPrev->nBits;
     }
@@ -135,8 +144,7 @@ uint32_t CalculateNextWorkRequired(const CBlockIndex *pindexPrev,
     return bnNew.GetCompact();
 }
 
-bool CheckProofOfWork(uint256 hash, uint32_t nBits,
-                      const Consensus::Params &params) {
+bool CheckProofOfWork(uint256 hash, uint32_t nBits, const Config &config) {
     bool fNegative;
     bool fOverflow;
     arith_uint256 bnTarget;
@@ -145,7 +153,8 @@ bool CheckProofOfWork(uint256 hash, uint32_t nBits,
 
     // Check range
     if (fNegative || bnTarget == 0 || fOverflow ||
-        bnTarget > UintToArith256(params.powLimit)) {
+        bnTarget >
+            UintToArith256(config.GetChainParams().GetConsensus().powLimit)) {
         return false;
     }
 
@@ -158,7 +167,7 @@ bool CheckProofOfWork(uint256 hash, uint32_t nBits,
 }
 
 /**
- * Compute the a target based on the work done between 2 blocks and the time
+ * Compute a target based on the work done between 2 blocks and the time
  * required to produce that work.
  */
 static arith_uint256 ComputeTarget(const CBlockIndex *pindexFirst,
@@ -175,9 +184,9 @@ static arith_uint256 ComputeTarget(const CBlockIndex *pindexFirst,
     work *= params.nPowTargetSpacing;
 
     // In order to avoid difficulty cliffs, we bound the amplitude of the
-    // adjustement we are going to do.
-    assert(pindexLast->nTime > pindexFirst->nTime);
-    int64_t nActualTimespan = pindexLast->nTime - pindexFirst->nTime;
+    // adjustment we are going to do to a factor in [0.5, 2].
+    int64_t nActualTimespan =
+        int64_t(pindexLast->nTime) - int64_t(pindexFirst->nTime);
     if (nActualTimespan > 288 * params.nPowTargetSpacing) {
         nActualTimespan = 288 * params.nPowTargetSpacing;
     } else if (nActualTimespan < 72 * params.nPowTargetSpacing) {
@@ -202,7 +211,7 @@ static const CBlockIndex *GetSuitableBlock(const CBlockIndex *pindex) {
     assert(pindex->nHeight >= 3);
 
     /**
-     * In order to avoid a block is a very skewed timestamp to have too much
+     * In order to avoid a block with a very skewed timestamp having too much
      * influence, we select the median of the 3 top most blocks as a starting
      * point.
      */
@@ -239,7 +248,9 @@ static const CBlockIndex *GetSuitableBlock(const CBlockIndex *pindex) {
  */
 uint32_t GetNextCashWorkRequired(const CBlockIndex *pindexPrev,
                                  const CBlockHeader *pblock,
-                                 const Consensus::Params &params) {
+                                 const Config &config) {
+    const Consensus::Params &params = config.GetChainParams().GetConsensus();
+
     // This cannot handle the genesis block and early blocks in general.
     assert(pindexPrev);
 
@@ -252,7 +263,7 @@ uint32_t GetNextCashWorkRequired(const CBlockIndex *pindexPrev,
         return UintToArith256(params.powLimit).GetCompact();
     }
 
-    // Compute the difficulty based on the full adjustement interval.
+    // Compute the difficulty based on the full adjustment interval.
     const uint32_t nHeight = pindexPrev->nHeight;
     assert(nHeight >= params.DifficultyAdjustmentInterval());
 

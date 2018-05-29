@@ -1,9 +1,9 @@
 // Copyright (c) 2011-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
-#include "uint256.h"
 #include "arith_uint256.h"
 #include "test/test_bitcoin.h"
+#include "uint256.h"
 #include "version.h"
 
 #include <boost/test/unit_test.hpp>
@@ -57,17 +57,6 @@ std::string ArrayToString(const uint8_t A[], unsigned int width) {
                << (unsigned int)A[width - i - 1];
     }
     return Stream.str();
-}
-
-inline uint160 uint160S(const char *str) {
-    uint160 rv;
-    rv.SetHex(str);
-    return rv;
-}
-inline uint160 uint160S(const std::string &str) {
-    uint160 rv;
-    rv.SetHex(str);
-    return rv;
 }
 
 // constructors, equality, inequality

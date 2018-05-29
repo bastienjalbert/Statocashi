@@ -27,9 +27,8 @@ public:
 };
 
 //!< bytes (+1 for OP_RETURN, +2 for the pushdata opcodes)
-static const unsigned int MAX_OP_RETURN_RELAY = 83;
+static const unsigned int MAX_OP_RETURN_RELAY = 223;
 extern bool fAcceptDatacarrier;
-extern unsigned nMaxDatacarrierBytes;
 
 /**
  * Mandatory script verification flags that all new blocks must comply with for
@@ -40,8 +39,9 @@ extern unsigned nMaxDatacarrierBytes;
  * Failing one of these tests may trigger a DoS ban - see CheckInputs() for
  * details.
  */
-static const unsigned int MANDATORY_SCRIPT_VERIFY_FLAGS =
-    SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_STRICTENC | SCRIPT_ENABLE_SIGHASH_FORKID;
+static const uint32_t MANDATORY_SCRIPT_VERIFY_FLAGS =
+    SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_STRICTENC |
+    SCRIPT_ENABLE_SIGHASH_FORKID | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_NULLFAIL;
 
 enum txnouttype {
     TX_NONSTANDARD,

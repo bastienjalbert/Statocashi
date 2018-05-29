@@ -108,11 +108,11 @@ public:
             if (!showTransaction && inModel) status = CT_DELETED;
         }
 
-        qDebug() << "    inModel=" + QString::number(inModel) + " Index=" +
-                        QString::number(lowerIndex) + "-" +
-                        QString::number(upperIndex) + " showTransaction=" +
-                        QString::number(showTransaction) + " derivedStatus=" +
-                        QString::number(status);
+        qDebug() << "    inModel=" + QString::number(inModel) +
+                        " Index=" + QString::number(lowerIndex) + "-" +
+                        QString::number(upperIndex) +
+                        " showTransaction=" + QString::number(showTransaction) +
+                        " derivedStatus=" + QString::number(status);
 
         switch (status) {
             case CT_NEW:
@@ -564,7 +564,7 @@ QVariant TransactionTableModel::data(const QModelIndex &index, int role) const {
                 case ToAddress:
                     return formatTxToAddress(rec, true);
                 case Amount:
-                    return qint64(rec->credit + rec->debit);
+                    return qint64((rec->credit + rec->debit).GetSatoshis());
             }
             break;
         case Qt::ToolTipRole:
@@ -581,7 +581,8 @@ QVariant TransactionTableModel::data(const QModelIndex &index, int role) const {
                 rec->status.status != TransactionStatus::Immature) {
                 return COLOR_UNCONFIRMED;
             }
-            if (index.column() == Amount && (rec->credit + rec->debit) < 0) {
+            if (index.column() == Amount &&
+                (rec->credit + rec->debit) < ::Amount(0)) {
                 return COLOR_NEGATIVE;
             }
             if (index.column() == ToAddress) {
@@ -605,7 +606,7 @@ QVariant TransactionTableModel::data(const QModelIndex &index, int role) const {
             return walletModel->getAddressTableModel()->labelForAddress(
                 QString::fromStdString(rec->address));
         case AmountRole:
-            return qint64(rec->credit + rec->debit);
+            return qint64((rec->credit + rec->debit).GetSatoshis());
         case TxIDRole:
             return rec->getTxID();
         case TxHashRole:
@@ -712,8 +713,8 @@ public:
 
     void invoke(QObject *ttm) {
         QString strHash = QString::fromStdString(hash.GetHex());
-        qDebug() << "NotifyTransactionChanged: " + strHash + " status= " +
-                        QString::number(status);
+        qDebug() << "NotifyTransactionChanged: " + strHash +
+                        " status= " + QString::number(status);
         QMetaObject::invokeMethod(ttm, "updateTransaction",
                                   Qt::QueuedConnection, Q_ARG(QString, strHash),
                                   Q_ARG(int, status),

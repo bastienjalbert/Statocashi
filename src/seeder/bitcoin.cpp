@@ -1,6 +1,7 @@
 #include "bitcoin.h"
 
 #include "db.h"
+#include "hash.h"
 #include "netbase.h"
 #include "serialize.h"
 #include "streams.h"
@@ -8,11 +9,17 @@
 
 #include <algorithm>
 
+// Weither we are on testnet or mainnet.
+bool fTestNet;
+
+// The network magic to use.
+CMessageHeader::MessageMagic netMagic = {{0xe3, 0xe1, 0xf3, 0xe8}};
+
 #define BITCOIN_SEED_NONCE 0x0539a019ca550825ULL
 
 static const uint32_t allones(-1);
 
-class CNode {
+class CSeederNode {
     SOCKET sock;
     CDataStream vSend;
     CDataStream vRecv;
@@ -33,7 +40,7 @@ class CNode {
             AbortMessage();
         }
         nHeaderStart = vSend.size();
-        vSend << CMessageHeader(pszCommand, 0);
+        vSend << CMessageHeader(netMagic, pszCommand, 0);
         nMessageStart = vSend.size();
         //    printf("%s: SEND %s\n", ToString(you).c_str(), pszCommand);
     }
@@ -60,9 +67,9 @@ class CNode {
             unsigned int nChecksum = 0;
             memcpy(&nChecksum, &hash, sizeof(nChecksum));
             assert(nMessageStart - nHeaderStart >=
-                   offsetof(CMessageHeader, nChecksum) + sizeof(nChecksum));
+                   offsetof(CMessageHeader, pchChecksum) + sizeof(nChecksum));
             memcpy((char *)&vSend[nHeaderStart] +
-                       offsetof(CMessageHeader, nChecksum),
+                       offsetof(CMessageHeader, pchChecksum),
                    &nChecksum, sizeof(nChecksum));
         }
         nHeaderStart = allones;
@@ -89,7 +96,8 @@ class CNode {
         int64_t nTime = time(nullptr);
         uint64_t nLocalNonce = BITCOIN_SEED_NONCE;
         int64_t nLocalServices = 0;
-        CAddress me(CService("0.0.0.0"));
+        CService myService;
+        CAddress me(myService, ServiceFlags(NODE_NETWORK | NODE_BITCOIN_CASH));
         BeginMessage("version");
         int nBestHeight = GetRequireHeight();
         std::string ver = "/bitcoin-cash-seeder:0.15/";
@@ -117,7 +125,9 @@ class CNode {
             CAddress addrMe;
             CAddress addrFrom;
             uint64_t nNonce = 1;
-            vRecv >> nVersion >> you.nServices >> nTime >> addrMe;
+            uint64_t nServiceInt;
+            vRecv >> nVersion >> nServiceInt >> nTime >> addrMe;
+            you.nServices = ServiceFlags(nServiceInt);
             if (nVersion == 10300) nVersion = 300;
             if (nVersion >= 106 && !vRecv.empty()) vRecv >> addrFrom >> nNonce;
             if (nVersion >= 106 && !vRecv.empty()) vRecv >> strSubVer;
@@ -179,11 +189,10 @@ class CNode {
         }
 
         do {
-            CDataStream::iterator pstart =
-                search(vRecv.begin(), vRecv.end(), BEGIN(pchMessageStart),
-                       END(pchMessageStart));
+            CDataStream::iterator pstart = std::search(
+                vRecv.begin(), vRecv.end(), BEGIN(netMagic), END(netMagic));
             uint32_t nHeaderSize = GetSerializeSize(
-                CMessageHeader(), vRecv.GetType(), vRecv.GetVersion());
+                CMessageHeader(netMagic), vRecv.GetType(), vRecv.GetVersion());
             if (vRecv.end() - pstart < nHeaderSize) {
                 if (vRecv.size() > nHeaderSize) {
                     vRecv.erase(vRecv.begin(), vRecv.end() - nHeaderSize);
@@ -193,9 +202,9 @@ class CNode {
             vRecv.erase(vRecv.begin(), pstart);
             std::vector<char> vHeaderSave(vRecv.begin(),
                                           vRecv.begin() + nHeaderSize);
-            CMessageHeader hdr;
+            CMessageHeader hdr(netMagic);
             vRecv >> hdr;
-            if (!hdr.IsValid()) {
+            if (!hdr.IsValidWithoutConfig(netMagic)) {
                 // printf("%s: BAD (invalid header)\n", ToString(you).c_str());
                 ban = 100000;
                 return true;
@@ -216,9 +225,10 @@ class CNode {
             if (vRecv.GetVersion() >= 209) {
                 uint256 hash =
                     Hash(vRecv.begin(), vRecv.begin() + nMessageSize);
-                unsigned int nChecksum = 0;
-                memcpy(&nChecksum, &hash, sizeof(nChecksum));
-                if (nChecksum != hdr.nChecksum) continue;
+                if (memcmp(hash.begin(), hdr.pchChecksum,
+                           CMessageHeader::CHECKSUM_SIZE) != 0) {
+                    continue;
+                }
             }
             CDataStream vMsg(vRecv.begin(), vRecv.begin() + nMessageSize,
                              vRecv.GetType(), vRecv.GetVersion());
@@ -231,10 +241,10 @@ class CNode {
     }
 
 public:
-    CNode(const CService &ip, std::vector<CAddress> *vAddrIn)
+    CSeederNode(const CService &ip, std::vector<CAddress> *vAddrIn)
         : vSend(SER_NETWORK, 0), vRecv(SER_NETWORK, 0), nHeaderStart(-1),
           nMessageStart(-1), nVersion(0), vAddr(vAddrIn), ban(0), doneAfter(0),
-          you(ip) {
+          you(ip, ServiceFlags(NODE_NETWORK | NODE_BITCOIN_CASH)) {
         if (time(nullptr) > 1329696000) {
             vSend.SetVersion(209);
             vRecv.SetVersion(209);
@@ -242,14 +252,20 @@ public:
     }
 
     bool Run() {
-        bool res = true;
-        if (!ConnectSocket(you, sock)) return false;
+        bool proxyConnectionFailed = false;
+        if (!ConnectSocket(you, sock, nConnectTimeout,
+                           &proxyConnectionFailed)) {
+            return false;
+        }
+
         PushVersion();
         Send();
+
+        bool res = true;
         int64_t now;
-        while (now = time(nullptr), ban == 0 &&
-                                        (doneAfter == 0 || doneAfter > now) &&
-                                        sock != INVALID_SOCKET) {
+        while (now = time(nullptr),
+               ban == 0 && (doneAfter == 0 || doneAfter > now) &&
+                   sock != INVALID_SOCKET) {
             char pchBuf[0x10000];
             fd_set set;
             FD_ZERO(&set);
@@ -305,7 +321,7 @@ bool TestNode(const CService &cip, int &ban, int &clientV,
               std::string &clientSV, int &blocks,
               std::vector<CAddress> *vAddr) {
     try {
-        CNode node(cip, vAddr);
+        CSeederNode node(cip, vAddr);
         bool ret = node.Run();
         if (!ret) {
             ban = node.GetBan();
@@ -322,15 +338,3 @@ bool TestNode(const CService &cip, int &ban, int &clientV,
         return false;
     }
 }
-
-/*
-int main(void) {
-  CService ip("bitcoin.sipa.be", 8333, true);
-  std::vector<CAddress> vAddr;
-  vAddr.clear();
-  int ban = 0;
-  bool ret = TestNode(ip, ban, vAddr);
-  printf("ret=%s ban=%i vAddr.size()=%i\n", ret ? "good" : "bad", ban,
-(int)vAddr.size());
-}
-*/

@@ -199,7 +199,6 @@ static UniValue getpeerinfo(const Config &config,
             obj.push_back(Pair("inflight", heights));
         }
         obj.push_back(Pair("whitelisted", stats.fWhitelisted));
-        obj.push_back(Pair("cashmagic", stats.fUsesCashMagic));
 
         UniValue sendPerMsgCmd(UniValue::VOBJ);
         for (const mapMsgCmdSize::value_type &i : stats.mapSendBytesPerMsgCmd) {
@@ -473,9 +472,9 @@ static UniValue GetNetworksInfo() {
         obj.push_back(Pair("name", GetNetworkName(network)));
         obj.push_back(Pair("limited", IsLimited(network)));
         obj.push_back(Pair("reachable", IsReachable(network)));
-        obj.push_back(Pair("proxy", proxy.IsValid()
-                                        ? proxy.proxy.ToStringIPPort()
-                                        : std::string()));
+        obj.push_back(Pair("proxy",
+                           proxy.IsValid() ? proxy.proxy.ToStringIPPort()
+                                           : std::string()));
         obj.push_back(
             Pair("proxy_randomize_credentials", proxy.randomize_credentials));
         networks.push_back(obj);
@@ -526,11 +525,11 @@ static UniValue getnetworkinfo(const Config &config,
             "  ],\n"
             "  \"relayfee\": x.xxxxxxxx,                (numeric) minimum "
             "relay fee for non-free transactions in " +
-            CURRENCY_UNIT + "/kB\n"
-                            "  \"incrementalfee\": x.xxxxxxxx,          "
-                            "(numeric) minimum fee increment for mempool "
-                            "limiting or BIP 125 replacement in " +
-            CURRENCY_UNIT + "/kB\n"
+            CURRENCY_UNIT +
+            "/kB\n"
+            "  \"excessutxocharge\": x.xxxxxxxx,        (numeric) minimum "
+            "charge for excess utxos in " +
+            CURRENCY_UNIT + "\n"
                             "  \"localaddresses\": [                    "
                             "(array) list of local addresses\n"
                             "  {\n"
@@ -562,14 +561,15 @@ static UniValue getnetworkinfo(const Config &config,
     obj.push_back(Pair("timeoffset", GetTimeOffset()));
     if (g_connman) {
         obj.push_back(Pair("networkactive", g_connman->GetNetworkActive()));
-        obj.push_back(Pair("connections", (int)g_connman->GetNodeCount(
-                                              CConnman::CONNECTIONS_ALL)));
+        obj.push_back(
+            Pair("connections",
+                 (int)g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL)));
     }
     obj.push_back(Pair("networks", GetNetworksInfo()));
-    obj.push_back(
-        Pair("relayfee", ValueFromAmount(::minRelayTxFee.GetFeePerK())));
-    obj.push_back(Pair("incrementalfee",
-                       ValueFromAmount(::incrementalRelayFee.GetFeePerK())));
+    obj.push_back(Pair("relayfee",
+                       ValueFromAmount(config.GetMinFeePerKB().GetFeePerK())));
+    obj.push_back(Pair("excessutxocharge",
+                       ValueFromAmount(config.GetExcessUTXOCharge())));
     UniValue localAddresses(UniValue::VARR);
     {
         LOCK(cs_mapLocalHost);

@@ -4,14 +4,20 @@
 
 #include "bench.h"
 
+#include "crypto/sha256.h"
 #include "key.h"
+#include "random.h"
 #include "util.h"
 #include "validation.h"
 
 int main(int argc, char **argv) {
+    SHA256AutoDetect();
+    RandomInit();
     ECC_Start();
     SetupEnvironment();
-    fPrintToDebugLog = false; // don't want to write to debug.log file
+
+    // don't want to write to debug.log file
+    GetLogger().fPrintToDebugLog = false;
 
     benchmark::BenchRunner::RunAll();
 

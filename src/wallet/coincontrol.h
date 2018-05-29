@@ -18,7 +18,7 @@ public:
     //! criteria
     bool fAllowWatchOnly;
     //! Minimum absolute fee (not per kilobyte)
-    CAmount nMinimumTotalFee;
+    Amount nMinimumTotalFee;
     //! Override estimated feerate
     bool fOverrideFeeRate;
     //! Feerate to use if overrideFeeRate is true
@@ -33,8 +33,8 @@ public:
         fAllowOtherInputs = false;
         fAllowWatchOnly = false;
         setSelected.clear();
-        nMinimumTotalFee = 0;
-        nFeeRate = CFeeRate(0);
+        nMinimumTotalFee = Amount(0);
+        nFeeRate = CFeeRate(Amount(0));
         fOverrideFeeRate = false;
         nConfirmTarget = 0;
     }

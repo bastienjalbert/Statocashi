@@ -26,7 +26,7 @@ class TxViewDelegate : public QAbstractItemDelegate {
 public:
     TxViewDelegate(const PlatformStyle *_platformStyle,
                    QObject *parent = nullptr)
-        : QAbstractItemDelegate(parent), unit(BitcoinUnits::BCC),
+        : QAbstractItemDelegate(parent), unit(BitcoinUnits::BCH),
           platformStyle(_platformStyle) {}
 
     inline void paint(QPainter *painter, const QStyleOptionViewItem &option,
@@ -52,8 +52,8 @@ public:
         QDateTime date =
             index.data(TransactionTableModel::DateRole).toDateTime();
         QString address = index.data(Qt::DisplayRole).toString();
-        qint64 amount =
-            index.data(TransactionTableModel::AmountRole).toLongLong();
+        Amount amount(
+            index.data(TransactionTableModel::AmountRole).toLongLong());
         bool confirmed =
             index.data(TransactionTableModel::ConfirmedRole).toBool();
         QVariant value = index.data(Qt::ForegroundRole);
@@ -77,7 +77,7 @@ public:
             iconWatchonly.paint(painter, watchonlyRect);
         }
 
-        if (amount < 0) {
+        if (amount < Amount(0)) {
             foreground = COLOR_NEGATIVE;
         } else if (!confirmed) {
             foreground = COLOR_UNCONFIRMED;
@@ -158,12 +158,12 @@ OverviewPage::~OverviewPage() {
     delete ui;
 }
 
-void OverviewPage::setBalance(const CAmount &balance,
-                              const CAmount &unconfirmedBalance,
-                              const CAmount &immatureBalance,
-                              const CAmount &watchOnlyBalance,
-                              const CAmount &watchUnconfBalance,
-                              const CAmount &watchImmatureBalance) {
+void OverviewPage::setBalance(const Amount balance,
+                              const Amount unconfirmedBalance,
+                              const Amount immatureBalance,
+                              const Amount watchOnlyBalance,
+                              const Amount watchUnconfBalance,
+                              const Amount watchImmatureBalance) {
     int unit = walletModel->getOptionsModel()->getDisplayUnit();
     currentBalance = balance;
     currentUnconfirmedBalance = unconfirmedBalance;
@@ -193,8 +193,8 @@ void OverviewPage::setBalance(const CAmount &balance,
     // only show immature (newly mined) balance if it's non-zero, so as not to
     // complicate things
     // for the non-mining users
-    bool showImmature = immatureBalance != 0;
-    bool showWatchOnlyImmature = watchImmatureBalance != 0;
+    bool showImmature = immatureBalance != Amount(0);
+    bool showWatchOnlyImmature = watchImmatureBalance != Amount(0);
 
     // for symmetry reasons also show immature label when the watch-only one is
     // shown
@@ -251,10 +251,10 @@ void OverviewPage::setWalletModel(WalletModel *model) {
                    model->getImmatureBalance(), model->getWatchBalance(),
                    model->getWatchUnconfirmedBalance(),
                    model->getWatchImmatureBalance());
-        connect(model, SIGNAL(balanceChanged(CAmount, CAmount, CAmount, CAmount,
-                                             CAmount, CAmount)),
-                this, SLOT(setBalance(CAmount, CAmount, CAmount, CAmount,
-                                      CAmount, CAmount)));
+        connect(model, SIGNAL(balanceChanged(Amount, Amount, Amount, Amount,
+                                             Amount, Amount)),
+                this, SLOT(setBalance(Amount, Amount, Amount, Amount, Amount,
+                                      Amount)));
 
         connect(model->getOptionsModel(), SIGNAL(displayUnitChanged(int)), this,
                 SLOT(updateDisplayUnit()));
@@ -264,13 +264,13 @@ void OverviewPage::setWalletModel(WalletModel *model) {
                 SLOT(updateWatchOnlyLabels(bool)));
     }
 
-    // update the display unit, to not use the default ("BCC")
+    // update the display unit, to not use the default ("BCH")
     updateDisplayUnit();
 }
 
 void OverviewPage::updateDisplayUnit() {
     if (walletModel && walletModel->getOptionsModel()) {
-        if (currentBalance != -1)
+        if (currentBalance != Amount(-1))
             setBalance(currentBalance, currentUnconfirmedBalance,
                        currentImmatureBalance, currentWatchOnlyBalance,
                        currentWatchUnconfBalance, currentWatchImmatureBalance);

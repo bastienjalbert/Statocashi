@@ -10,7 +10,6 @@
 #include "ui_debugwindow.h"
 
 #include "bantablemodel.h"
-#include "bantablemodel.h"
 #include "clientmodel.h"
 #include "guiutil.h"
 #include "platformstyle.h"
@@ -21,8 +20,6 @@
 #include "rpc/client.h"
 #include "rpc/server.h"
 #include "util.h"
-
-#include <openssl/crypto.h>
 
 #include <univalue.h>
 
@@ -74,10 +71,10 @@ const QStringList historyFilter = QStringList() << "importprivkey"
                                                 << "walletpassphrase"
                                                 << "walletpassphrasechange"
                                                 << "encryptwallet";
-}
+} // namespace
 
 /* Object for executing console RPC commands in a separate thread.
-*/
+ */
 class RPCExecutor : public QObject {
     Q_OBJECT
 
@@ -112,8 +109,9 @@ private:
 class QtRPCTimerInterface : public RPCTimerInterface {
 public:
     ~QtRPCTimerInterface() {}
-    const char *Name() { return "Qt"; }
-    RPCTimerBase *NewTimer(std::function<void(void)> &func, int64_t millis) {
+    const char *Name() override { return "Qt"; }
+    RPCTimerBase *NewTimer(std::function<void(void)> &func,
+                           int64_t millis) override {
         return new QtRPCTimerBase(func, millis);
     }
 };

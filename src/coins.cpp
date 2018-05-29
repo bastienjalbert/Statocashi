@@ -19,6 +19,9 @@ bool CCoinsView::HaveCoin(const COutPoint &outpoint) const {
 uint256 CCoinsView::GetBestBlock() const {
     return uint256();
 }
+std::vector<uint256> CCoinsView::GetHeadBlocks() const {
+    return std::vector<uint256>();
+}
 bool CCoinsView::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) {
     return false;
 }
@@ -35,6 +38,9 @@ bool CCoinsViewBacked::HaveCoin(const COutPoint &outpoint) const {
 }
 uint256 CCoinsViewBacked::GetBestBlock() const {
     return base->GetBestBlock();
+}
+std::vector<uint256> CCoinsViewBacked::GetHeadBlocks() const {
+    return base->GetHeadBlocks();
 }
 void CCoinsViewBacked::SetBackend(CCoinsView &viewIn) {
     base = &viewIn;
@@ -122,15 +128,18 @@ void CCoinsViewCache::AddCoin(const COutPoint &outpoint, Coin coin,
     cachedCoinsUsage += it->second.coin.DynamicMemoryUsage();
 }
 
-void AddCoins(CCoinsViewCache &cache, const CTransaction &tx, int nHeight) {
+void AddCoins(CCoinsViewCache &cache, const CTransaction &tx, int nHeight,
+              bool check) {
     bool fCoinbase = tx.IsCoinBase();
-    const uint256 &txid = tx.GetHash();
+    const TxId txid = tx.GetId();
     for (size_t i = 0; i < tx.vout.size(); ++i) {
-        // Pass fCoinbase as the possible_overwrite flag to AddCoin, in order to
-        // correctly deal with the pre-BIP30 occurrances of duplicate coinbase
-        // transactions.
-        cache.AddCoin(COutPoint(txid, i), Coin(tx.vout[i], nHeight, fCoinbase),
-                      fCoinbase);
+        const COutPoint outpoint(txid, i);
+        bool overwrite = check ? cache.HaveCoin(outpoint) : fCoinbase;
+        // Always set the possible_overwrite flag to AddCoin for coinbase txn,
+        // in order to correctly deal with the pre-BIP30 occurrences of
+        // duplicate coinbase transactions.
+        cache.AddCoin(outpoint, Coin(tx.vout[i], nHeight, fCoinbase),
+                      overwrite);
     }
 }
 
@@ -273,10 +282,10 @@ const CTxOut &CCoinsViewCache::GetOutputFor(const CTxIn &input) const {
 
 Amount CCoinsViewCache::GetValueIn(const CTransaction &tx) const {
     if (tx.IsCoinBase()) {
-        return 0;
+        return Amount(0);
     }
 
-    Amount nResult = 0;
+    Amount nResult(0);
     for (size_t i = 0; i < tx.vin.size(); i++) {
         nResult += GetOutputFor(tx.vin[i]).nValue;
     }
@@ -323,14 +332,12 @@ double CCoinsViewCache::GetPriority(const CTransaction &tx, int nHeight,
 static const size_t MAX_OUTPUTS_PER_TX =
     MAX_TX_SIZE / ::GetSerializeSize(CTxOut(), SER_NETWORK, PROTOCOL_VERSION);
 
-const Coin &AccessByTxid(const CCoinsViewCache &view, const uint256 &txid) {
-    COutPoint iter(txid, 0);
-    while (iter.n < MAX_OUTPUTS_PER_TX) {
-        const Coin &alternate = view.AccessCoin(iter);
+const Coin &AccessByTxid(const CCoinsViewCache &view, const TxId &txid) {
+    for (uint32_t n = 0; n < MAX_OUTPUTS_PER_TX; n++) {
+        const Coin &alternate = view.AccessCoin(COutPoint(txid, n));
         if (!alternate.IsSpent()) {
             return alternate;
         }
-        ++iter.n;
     }
 
     return coinEmpty;

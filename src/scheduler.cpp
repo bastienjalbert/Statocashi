@@ -4,6 +4,7 @@
 
 #include "scheduler.h"
 
+#include "random.h"
 #include "reverselock.h"
 
 #include <boost/bind.hpp>
@@ -33,6 +34,11 @@ void CScheduler::serviceQueue() {
     // waiting or when the user's function is called.
     while (!shouldStop()) {
         try {
+            if (!shouldStop() && taskQueue.empty()) {
+                reverse_lock<boost::unique_lock<boost::mutex>> rlock(lock);
+                // Use this chance to get a tiny bit more entropy
+                RandAddSeedSleep();
+            }
             while (!shouldStop() && taskQueue.empty()) {
                 // Wait until there is something to do.
                 newTaskScheduled.wait(lock);
@@ -105,19 +111,24 @@ void CScheduler::schedule(CScheduler::Function f,
     newTaskScheduled.notify_one();
 }
 
-void CScheduler::scheduleFromNow(CScheduler::Function f, int64_t deltaSeconds) {
-    schedule(f, boost::chrono::system_clock::now() +
-                    boost::chrono::seconds(deltaSeconds));
+void CScheduler::scheduleFromNow(CScheduler::Function f,
+                                 int64_t deltaMilliSeconds) {
+    schedule(f,
+             boost::chrono::system_clock::now() +
+                 boost::chrono::milliseconds(deltaMilliSeconds));
 }
 
 static void Repeat(CScheduler *s, CScheduler::Function f,
-                   int64_t deltaSeconds) {
+                   int64_t deltaMilliSeconds) {
     f();
-    s->scheduleFromNow(boost::bind(&Repeat, s, f, deltaSeconds), deltaSeconds);
+    s->scheduleFromNow(boost::bind(&Repeat, s, f, deltaMilliSeconds),
+                       deltaMilliSeconds);
 }
 
-void CScheduler::scheduleEvery(CScheduler::Function f, int64_t deltaSeconds) {
-    scheduleFromNow(boost::bind(&Repeat, this, f, deltaSeconds), deltaSeconds);
+void CScheduler::scheduleEvery(CScheduler::Function f,
+                               int64_t deltaMilliSeconds) {
+    scheduleFromNow(boost::bind(&Repeat, this, f, deltaMilliSeconds),
+                    deltaMilliSeconds);
 }
 
 size_t

@@ -7,13 +7,13 @@
 #define BITCOIN_SCRIPT_SIGN_H
 
 #include "script/interpreter.h"
+#include "script/sighashtype.h"
 
 class CKeyID;
 class CKeyStore;
+class CMutableTransaction;
 class CScript;
 class CTransaction;
-
-struct CMutableTransaction;
 
 /** Virtual base class for signature creators. */
 class BaseSignatureCreator {
@@ -36,17 +36,17 @@ class TransactionSignatureCreator : public BaseSignatureCreator {
     const CTransaction *txTo;
     unsigned int nIn;
     Amount amount;
-    uint32_t nHashType;
+    SigHashType sigHashType;
     const TransactionSignatureChecker checker;
 
 public:
     TransactionSignatureCreator(const CKeyStore *keystoreIn,
                                 const CTransaction *txToIn, unsigned int nInIn,
                                 const Amount amountIn,
-                                uint32_t nHashTypeIn = SIGHASH_ALL);
-    const BaseSignatureChecker &Checker() const { return checker; }
+                                SigHashType sigHashTypeIn = SigHashType());
+    const BaseSignatureChecker &Checker() const override { return checker; }
     bool CreateSig(std::vector<uint8_t> &vchSig, const CKeyID &keyid,
-                   const CScript &scriptCode) const;
+                   const CScript &scriptCode) const override;
 };
 
 class MutableTransactionSignatureCreator : public TransactionSignatureCreator {
@@ -56,9 +56,9 @@ public:
     MutableTransactionSignatureCreator(const CKeyStore *keystoreIn,
                                        const CMutableTransaction *txToIn,
                                        unsigned int nInIn, const Amount amount,
-                                       uint32_t nHashTypeIn)
+                                       SigHashType sigHashTypeIn)
         : TransactionSignatureCreator(keystoreIn, &tx, nInIn, amount,
-                                      nHashTypeIn),
+                                      sigHashTypeIn),
           tx(*txToIn) {}
 };
 
@@ -67,9 +67,9 @@ class DummySignatureCreator : public BaseSignatureCreator {
 public:
     DummySignatureCreator(const CKeyStore *keystoreIn)
         : BaseSignatureCreator(keystoreIn) {}
-    const BaseSignatureChecker &Checker() const;
+    const BaseSignatureChecker &Checker() const override;
     bool CreateSig(std::vector<uint8_t> &vchSig, const CKeyID &keyid,
-                   const CScript &scriptCode) const;
+                   const CScript &scriptCode) const override;
 };
 
 struct SignatureData {
@@ -86,10 +86,10 @@ bool ProduceSignature(const BaseSignatureCreator &creator,
 /** Produce a script signature for a transaction. */
 bool SignSignature(const CKeyStore &keystore, const CScript &fromPubKey,
                    CMutableTransaction &txTo, unsigned int nIn,
-                   const Amount amount, uint32_t nHashType);
+                   const Amount amount, SigHashType sigHashType);
 bool SignSignature(const CKeyStore &keystore, const CTransaction &txFrom,
                    CMutableTransaction &txTo, unsigned int nIn,
-                   uint32_t nHashType);
+                   SigHashType sigHashType);
 
 /** Combine two script signatures using a generic signature checker,
  * intelligently, possibly with OP_0 placeholders. */

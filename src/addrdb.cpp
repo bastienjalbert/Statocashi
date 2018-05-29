@@ -8,15 +8,14 @@
 #include "addrman.h"
 #include "chainparams.h"
 #include "clientversion.h"
+#include "fs.h"
 #include "hash.h"
 #include "random.h"
 #include "streams.h"
 #include "tinyformat.h"
 #include "util.h"
 
-#include <boost/filesystem.hpp>
-
-CBanDB::CBanDB() {
+CBanDB::CBanDB(const CChainParams &chainParams) : chainParams(chainParams) {
     pathBanlist = GetDataDir() / "banlist.dat";
 }
 
@@ -28,14 +27,14 @@ bool CBanDB::Write(const banmap_t &banSet) {
 
     // serialize banlist, checksum data up to that point, then append csum
     CDataStream ssBanlist(SER_DISK, CLIENT_VERSION);
-    ssBanlist << FLATDATA(Params().MessageStart());
+    ssBanlist << FLATDATA(chainParams.DiskMagic());
     ssBanlist << banSet;
     uint256 hash = Hash(ssBanlist.begin(), ssBanlist.end());
     ssBanlist << hash;
 
     // open temp output file, and associate with CAutoFile
-    boost::filesystem::path pathTmp = GetDataDir() / tmpfn;
-    FILE *file = fopen(pathTmp.string().c_str(), "wb");
+    fs::path pathTmp = GetDataDir() / tmpfn;
+    FILE *file = fsbridge::fopen(pathTmp, "wb");
     CAutoFile fileout(file, SER_DISK, CLIENT_VERSION);
     if (fileout.IsNull())
         return error("%s: Failed to open file %s", __func__, pathTmp.string());
@@ -58,14 +57,14 @@ bool CBanDB::Write(const banmap_t &banSet) {
 
 bool CBanDB::Read(banmap_t &banSet) {
     // open input file, and associate with CAutoFile
-    FILE *file = fopen(pathBanlist.string().c_str(), "rb");
+    FILE *file = fsbridge::fopen(pathBanlist, "rb");
     CAutoFile filein(file, SER_DISK, CLIENT_VERSION);
     if (filein.IsNull())
         return error("%s: Failed to open file %s", __func__,
                      pathBanlist.string());
 
     // use file size to size memory buffer
-    uint64_t fileSize = boost::filesystem::file_size(pathBanlist);
+    uint64_t fileSize = fs::file_size(pathBanlist);
     uint64_t dataSize = 0;
     // Don't try to resize to a negative number if file is small
     if (fileSize >= sizeof(uint256)) dataSize = fileSize - sizeof(uint256);
@@ -95,8 +94,10 @@ bool CBanDB::Read(banmap_t &banSet) {
         ssBanlist >> FLATDATA(pchMsgTmp);
 
         // ... verify the network matches ours
-        if (memcmp(pchMsgTmp, Params().MessageStart(), sizeof(pchMsgTmp)))
+        if (memcmp(pchMsgTmp, std::begin(chainParams.DiskMagic()),
+                   sizeof(pchMsgTmp))) {
             return error("%s: Invalid network magic number", __func__);
+        }
 
         // de-serialize ban data
         ssBanlist >> banSet;
@@ -107,7 +108,7 @@ bool CBanDB::Read(banmap_t &banSet) {
     return true;
 }
 
-CAddrDB::CAddrDB() {
+CAddrDB::CAddrDB(const CChainParams &chainParams) : chainParams(chainParams) {
     pathAddr = GetDataDir() / "peers.dat";
 }
 
@@ -119,14 +120,14 @@ bool CAddrDB::Write(const CAddrMan &addr) {
 
     // serialize addresses, checksum data up to that point, then append csum
     CDataStream ssPeers(SER_DISK, CLIENT_VERSION);
-    ssPeers << FLATDATA(Params().MessageStart());
+    ssPeers << FLATDATA(chainParams.DiskMagic());
     ssPeers << addr;
     uint256 hash = Hash(ssPeers.begin(), ssPeers.end());
     ssPeers << hash;
 
     // open temp output file, and associate with CAutoFile
-    boost::filesystem::path pathTmp = GetDataDir() / tmpfn;
-    FILE *file = fopen(pathTmp.string().c_str(), "wb");
+    fs::path pathTmp = GetDataDir() / tmpfn;
+    FILE *file = fsbridge::fopen(pathTmp, "wb");
     CAutoFile fileout(file, SER_DISK, CLIENT_VERSION);
     if (fileout.IsNull())
         return error("%s: Failed to open file %s", __func__, pathTmp.string());
@@ -149,13 +150,13 @@ bool CAddrDB::Write(const CAddrMan &addr) {
 
 bool CAddrDB::Read(CAddrMan &addr) {
     // open input file, and associate with CAutoFile
-    FILE *file = fopen(pathAddr.string().c_str(), "rb");
+    FILE *file = fsbridge::fopen(pathAddr, "rb");
     CAutoFile filein(file, SER_DISK, CLIENT_VERSION);
     if (filein.IsNull())
         return error("%s: Failed to open file %s", __func__, pathAddr.string());
 
     // use file size to size memory buffer
-    uint64_t fileSize = boost::filesystem::file_size(pathAddr);
+    uint64_t fileSize = fs::file_size(pathAddr);
     uint64_t dataSize = 0;
     // Don't try to resize to a negative number if file is small
     if (fileSize >= sizeof(uint256)) dataSize = fileSize - sizeof(uint256);
@@ -189,8 +190,10 @@ bool CAddrDB::Read(CAddrMan &addr, CDataStream &ssPeers) {
         ssPeers >> FLATDATA(pchMsgTmp);
 
         // ... verify the network matches ours
-        if (memcmp(pchMsgTmp, Params().MessageStart(), sizeof(pchMsgTmp)))
+        if (memcmp(pchMsgTmp, std::begin(chainParams.DiskMagic()),
+                   sizeof(pchMsgTmp))) {
             return error("%s: Invalid network magic number", __func__);
+        }
 
         // de-serialize address data into one CAddrMan object
         ssPeers >> addr;

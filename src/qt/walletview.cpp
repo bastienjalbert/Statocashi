@@ -29,7 +29,8 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
-WalletView::WalletView(const PlatformStyle *_platformStyle, QWidget *parent)
+WalletView::WalletView(const PlatformStyle *_platformStyle, const Config *cfg,
+                       QWidget *parent)
     : QStackedWidget(parent), clientModel(0), walletModel(0),
       platformStyle(_platformStyle) {
     // Create tabs
@@ -51,7 +52,7 @@ WalletView::WalletView(const PlatformStyle *_platformStyle, QWidget *parent)
     vbox->addLayout(hbox_buttons);
     transactionsPage->setLayout(vbox);
 
-    receiveCoinsPage = new ReceiveCoinsDialog(platformStyle);
+    receiveCoinsPage = new ReceiveCoinsDialog(platformStyle, cfg);
     sendCoinsPage = new SendCoinsDialog(platformStyle);
 
     usedSendingAddressesPage =
@@ -108,9 +109,9 @@ void WalletView::setBitcoinGUI(BitcoinGUI *gui) {
                 SLOT(setEncryptionStatus(int)));
 
         // Pass through transaction notifications
-        connect(this, SIGNAL(incomingTransaction(QString, int, CAmount, QString,
+        connect(this, SIGNAL(incomingTransaction(QString, int, Amount, QString,
                                                  QString, QString)),
-                gui, SLOT(incomingTransaction(QString, int, CAmount, QString,
+                gui, SLOT(incomingTransaction(QString, int, Amount, QString,
                                               QString, QString)));
 
         // Connect HD enabled state signal
@@ -191,7 +192,7 @@ void WalletView::processNewTransaction(const QModelIndex &parent, int start,
 
     Q_EMIT incomingTransaction(date,
                                walletModel->getOptionsModel()->getDisplayUnit(),
-                               amount, type, address, label);
+                               Amount(amount), type, address, label);
 }
 
 void WalletView::gotoOverviewPage() {

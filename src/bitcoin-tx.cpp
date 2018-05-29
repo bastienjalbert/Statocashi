@@ -7,10 +7,12 @@
 #endif
 
 #include "base58.h"
+#include "chainparams.h"
 #include "clientversion.h"
 #include "coins.h"
 #include "consensus/consensus.h"
 #include "core_io.h"
+#include "dstencode.h"
 #include "keystore.h"
 #include "policy/policy.h"
 #include "primitives/transaction.h"
@@ -37,7 +39,7 @@ static int AppInitRawTx(int argc, char *argv[]) {
     //
     // Parameters
     //
-    ParseParameters(argc, argv);
+    gArgs.ParseParameters(argc, argv);
 
     // Check for -testnet or -regtest parameter (Params() calls are only valid
     // after this clause)
@@ -48,9 +50,10 @@ static int AppInitRawTx(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    fCreateBlank = GetBoolArg("-create", false);
+    fCreateBlank = gArgs.GetBoolArg("-create", false);
 
-    if (argc < 2 || IsArgSet("-?") || IsArgSet("-h") || IsArgSet("-help")) {
+    if (argc < 2 || gArgs.IsArgSet("-?") || gArgs.IsArgSet("-h") ||
+        gArgs.IsArgSet("-help")) {
         // First part of help message is specific to this utility
         std::string strUsage =
             strprintf(_("%s bitcoin-tx utility version"), _(PACKAGE_NAME)) +
@@ -239,7 +242,7 @@ static void MutateTxAddInput(CMutableTransaction &tx,
         throw std::runtime_error("invalid TX input txid");
     }
 
-    uint256 txid(uint256S(strTxid));
+    TxId txid(uint256S(strTxid));
 
     static const unsigned int minTxOutSz = 9;
     static const unsigned int maxVout = MAX_TX_SIZE / minTxOutSz;
@@ -263,7 +266,8 @@ static void MutateTxAddInput(CMutableTransaction &tx,
 }
 
 static void MutateTxAddOutAddr(CMutableTransaction &tx,
-                               const std::string &strInput) {
+                               const std::string &strInput,
+                               const CChainParams &chainParams) {
     // Separate into VALUE:ADDRESS
     std::vector<std::string> vStrInputParts;
     boost::split(vStrInputParts, strInput, boost::is_any_of(":"));
@@ -277,7 +281,7 @@ static void MutateTxAddOutAddr(CMutableTransaction &tx,
 
     // extract and validate ADDRESS
     std::string strAddr = vStrInputParts[1];
-    CTxDestination destination = DecodeDestination(strAddr);
+    CTxDestination destination = DecodeDestination(strAddr, chainParams);
     if (!IsValidDestination(destination)) {
         throw std::runtime_error("invalid TX output address");
     }
@@ -395,7 +399,7 @@ static void MutateTxAddOutMultiSig(CMutableTransaction &tx,
 
 static void MutateTxAddOutData(CMutableTransaction &tx,
                                const std::string &strInput) {
-    Amount value = 0;
+    Amount value(0);
 
     // separate [VALUE:]DATA in string
     size_t pos = strInput.find(':');
@@ -483,7 +487,7 @@ static const unsigned int N_SIGHASH_OPTS = 12;
 static const struct {
     const char *flagStr;
     int flags;
-} sighashOptions[N_SIGHASH_OPTS] = {
+} sigHashOptions[N_SIGHASH_OPTS] = {
     {"ALL", SIGHASH_ALL},
     {"NONE", SIGHASH_NONE},
     {"SINGLE", SIGHASH_SINGLE},
@@ -501,12 +505,13 @@ static const struct {
      SIGHASH_SINGLE | SIGHASH_FORKID | SIGHASH_ANYONECANPAY},
 };
 
-static bool findSighashFlags(int &flags, const std::string &flagStr) {
-    flags = 0;
+static bool findSigHashFlags(SigHashType &sigHashType,
+                             const std::string &flagStr) {
+    sigHashType = SigHashType();
 
     for (unsigned int i = 0; i < N_SIGHASH_OPTS; i++) {
-        if (flagStr == sighashOptions[i].flagStr) {
-            flags = sighashOptions[i].flags;
+        if (flagStr == sigHashOptions[i].flagStr) {
+            sigHashType = SigHashType(sigHashOptions[i].flags);
             return true;
         }
     }
@@ -551,14 +556,14 @@ static Amount AmountFromValue(const UniValue &value) {
 }
 
 static void MutateTxSign(CMutableTransaction &tx, const std::string &flagStr) {
-    int nHashType = SIGHASH_ALL | SIGHASH_FORKID;
+    SigHashType sigHashType = SigHashType().withForkId();
 
-    if ((flagStr.size() > 0) && !findSighashFlags(nHashType, flagStr)) {
+    if ((flagStr.size() > 0) && !findSigHashFlags(sigHashType, flagStr)) {
         throw std::runtime_error("unknown sighash flag/sign option");
     }
 
     std::vector<CTransaction> txVariants;
-    txVariants.push_back(tx);
+    txVariants.push_back(CTransaction(tx));
 
     // mergedTx will end up with all the signatures; it starts as a clone of the
     // raw tx:
@@ -634,7 +639,7 @@ static void MutateTxSign(CMutableTransaction &tx, const std::string &flagStr) {
 
             CTxOut txout;
             txout.scriptPubKey = scriptPubKey;
-            txout.nValue = 0;
+            txout.nValue = Amount(0);
             if (prevOut.exists("amount")) {
                 txout.nValue = AmountFromValue(prevOut["amount"]);
             }
@@ -655,10 +660,6 @@ static void MutateTxSign(CMutableTransaction &tx, const std::string &flagStr) {
 
     const CKeyStore &keystore = tempKeystore;
 
-    bool fHashSingle =
-        ((nHashType & ~(SIGHASH_ANYONECANPAY | SIGHASH_FORKID)) ==
-         SIGHASH_SINGLE);
-
     // Sign what we can:
     for (size_t i = 0; i < mergedTx.vin.size(); i++) {
         CTxIn &txin = mergedTx.vin[i];
@@ -673,27 +674,26 @@ static void MutateTxSign(CMutableTransaction &tx, const std::string &flagStr) {
 
         SignatureData sigdata;
         // Only sign SIGHASH_SINGLE if there's a corresponding output:
-        if (!fHashSingle || (i < mergedTx.vout.size())) {
-            ProduceSignature(
-                MutableTransactionSignatureCreator(
-                    &keystore, &mergedTx, i, amount.GetSatoshis(), nHashType),
-                prevPubKey, sigdata);
+        if ((sigHashType.getBaseType() != BaseSigHashType::SINGLE) ||
+            (i < mergedTx.vout.size())) {
+            ProduceSignature(MutableTransactionSignatureCreator(
+                                 &keystore, &mergedTx, i, amount, sigHashType),
+                             prevPubKey, sigdata);
         }
 
         // ... and merge in other signatures:
         for (const CTransaction &txv : txVariants) {
-            sigdata = CombineSignatures(prevPubKey,
-                                        MutableTransactionSignatureChecker(
-                                            &mergedTx, i, amount.GetSatoshis()),
-                                        sigdata, DataFromTransaction(txv, i));
+            sigdata = CombineSignatures(
+                prevPubKey,
+                MutableTransactionSignatureChecker(&mergedTx, i, amount),
+                sigdata, DataFromTransaction(txv, i));
         }
 
         UpdateTransaction(mergedTx, i, sigdata);
 
-        if (!VerifyScript(txin.scriptSig, prevPubKey,
-                          STANDARD_SCRIPT_VERIFY_FLAGS,
-                          MutableTransactionSignatureChecker(
-                              &mergedTx, i, amount.GetSatoshis()))) {
+        if (!VerifyScript(
+                txin.scriptSig, prevPubKey, STANDARD_SCRIPT_VERIFY_FLAGS,
+                MutableTransactionSignatureChecker(&mergedTx, i, amount))) {
             fComplete = false;
         }
     }
@@ -715,7 +715,8 @@ public:
 };
 
 static void MutateTx(CMutableTransaction &tx, const std::string &command,
-                     const std::string &commandVal) {
+                     const std::string &commandVal,
+                     const CChainParams &chainParams) {
     std::unique_ptr<Secp256k1Init> ecc;
 
     if (command == "nversion") {
@@ -729,7 +730,7 @@ static void MutateTx(CMutableTransaction &tx, const std::string &command,
     } else if (command == "delout") {
         MutateTxDelOutput(tx, commandVal);
     } else if (command == "outaddr") {
-        MutateTxAddOutAddr(tx, commandVal);
+        MutateTxAddOutAddr(tx, commandVal, chainParams);
     } else if (command == "outpubkey") {
         MutateTxAddOutPubKey(tx, commandVal);
     } else if (command == "outmultisig") {
@@ -775,9 +776,9 @@ static void OutputTxHex(const CTransaction &tx) {
 }
 
 static void OutputTx(const CTransaction &tx) {
-    if (GetBoolArg("-json", false)) {
+    if (gArgs.GetBoolArg("-json", false)) {
         OutputTxJSON(tx);
-    } else if (GetBoolArg("-txid", false)) {
+    } else if (gArgs.GetBoolArg("-txid", false)) {
         OutputTxHash(tx);
     } else {
         OutputTxHex(tx);
@@ -805,7 +806,8 @@ static std::string readStdin() {
     return ret;
 }
 
-static int CommandLineRawTx(int argc, char *argv[]) {
+static int CommandLineRawTx(int argc, char *argv[],
+                            const CChainParams &chainParams) {
     std::string strPrint;
     int nRet = 0;
     try {
@@ -852,10 +854,10 @@ static int CommandLineRawTx(int argc, char *argv[]) {
                 value = arg.substr(eqpos + 1);
             }
 
-            MutateTx(tx, key, value);
+            MutateTx(tx, key, value, chainParams);
         }
 
-        OutputTx(tx);
+        OutputTx(CTransaction(tx));
     }
 
     catch (const boost::thread_interrupted &) {
@@ -891,7 +893,7 @@ int main(int argc, char *argv[]) {
 
     int ret = EXIT_FAILURE;
     try {
-        ret = CommandLineRawTx(argc, argv);
+        ret = CommandLineRawTx(argc, argv, Params());
     } catch (const std::exception &e) {
         PrintExceptionContinue(&e, "CommandLineRawTx()");
     } catch (...) {

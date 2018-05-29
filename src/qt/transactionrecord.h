@@ -26,7 +26,7 @@ public:
 
     enum Status {
         /**< Have 6 or more confirmations (normal tx) or fully mature (mined tx)
-           **/
+         **/
         Confirmed,
         /// Normal (sent/received) transactions
         /**< Transaction not yet final, waiting for date */
@@ -38,7 +38,7 @@ public:
         /**< Not yet mined into a block **/
         Unconfirmed,
         /**< Confirmed, but waiting for the recommended number of confirmations
-           **/
+         **/
         Confirming,
         /**< Conflicts with other transaction or mempool **/
         Conflicted,
@@ -48,7 +48,7 @@ public:
         /**< Mined but waiting for maturity */
         Immature,
         /**< Transaction will likely not mature because no nodes have confirmed
-           */
+         */
         MaturesWarning,
         /**< Mined but not accepted */
         NotAccepted
@@ -107,8 +107,8 @@ public:
           credit(0), idx(0) {}
 
     TransactionRecord(uint256 _hash, qint64 _time, Type _type,
-                      const std::string &_address, const CAmount &_debit,
-                      const CAmount &_credit)
+                      const std::string &_address, const Amount _debit,
+                      const Amount _credit)
         : hash(_hash), time(_time), type(_type), address(_address),
           debit(_debit), credit(_credit), idx(0) {}
 
@@ -124,8 +124,8 @@ public:
     qint64 time;
     Type type;
     std::string address;
-    CAmount debit;
-    CAmount credit;
+    Amount debit;
+    Amount credit;
     /**@}*/
 
     /** Subtransaction index, for sort key */

@@ -9,6 +9,7 @@
 
 #include "chainparamsbase.h"
 #include "clientversion.h"
+#include "fs.h"
 #include "rpc/client.h"
 #include "rpc/protocol.h"
 #include "support/events.h"
@@ -29,6 +30,10 @@ static const bool DEFAULT_NAMED = false;
 static const int CONTINUE_EXECUTION = -1;
 
 std::string HelpMessageCli() {
+    const auto defaultBaseParams =
+        CreateBaseChainParams(CBaseChainParams::MAIN);
+    const auto testnetBaseParams =
+        CreateBaseChainParams(CBaseChainParams::TESTNET);
     std::string strUsage;
     strUsage += HelpMessageGroup(_("Options:"));
     strUsage += HelpMessageOpt("-?", _("This help message"));
@@ -49,21 +54,32 @@ std::string HelpMessageCli() {
         "-rpcport=<port>",
         strprintf(
             _("Connect to JSON-RPC on <port> (default: %u or testnet: %u)"),
-            BaseParams(CBaseChainParams::MAIN).RPCPort(),
-            BaseParams(CBaseChainParams::TESTNET).RPCPort()));
+            defaultBaseParams->RPCPort(), testnetBaseParams->RPCPort()));
     strUsage += HelpMessageOpt("-rpcwait", _("Wait for RPC server to start"));
     strUsage += HelpMessageOpt("-rpcuser=<user>",
                                _("Username for JSON-RPC connections"));
     strUsage += HelpMessageOpt("-rpcpassword=<pw>",
                                _("Password for JSON-RPC connections"));
+    strUsage +=
+        HelpMessageOpt("-rpcclienttimeout=<n>",
+                       strprintf(_("Timeout in seconds during HTTP requests, "
+                                   "or 0 for no timeout. (default: %d)"),
+                                 DEFAULT_HTTP_CLIENT_TIMEOUT));
+
     strUsage += HelpMessageOpt(
-        "-rpcclienttimeout=<n>",
-        strprintf(_("Timeout during HTTP requests (default: %d)"),
-                  DEFAULT_HTTP_CLIENT_TIMEOUT));
+        "-stdinrpcpass",
+        strprintf(_("Read RPC password from standard input as a single line.  "
+                    "When combined with -stdin, the first line from standard "
+                    "input is used for the RPC password.")));
     strUsage += HelpMessageOpt(
         "-stdin", _("Read extra arguments from standard input, one per line "
                     "until EOF/Ctrl-D (recommended for sensitive information "
                     "such as passphrases)"));
+    strUsage += HelpMessageOpt(
+        "-rpcwallet=<walletname>",
+        _("Send RPC for non-default wallet on RPC server (argument is wallet "
+          "filename in bitcoind directory, required if bitcoind/-Qt runs with "
+          "multiple wallets)"));
 
     return strUsage;
 }
@@ -91,13 +107,13 @@ static int AppInitRPC(int argc, char *argv[]) {
     //
     // Parameters
     //
-    ParseParameters(argc, argv);
-    if (argc < 2 || IsArgSet("-?") || IsArgSet("-h") || IsArgSet("-help") ||
-        IsArgSet("-version")) {
+    gArgs.ParseParameters(argc, argv);
+    if (argc < 2 || gArgs.IsArgSet("-?") || gArgs.IsArgSet("-h") ||
+        gArgs.IsArgSet("-help") || gArgs.IsArgSet("-version")) {
         std::string strUsage =
             strprintf(_("%s RPC client version"), _(PACKAGE_NAME)) + " " +
             FormatFullVersion() + "\n";
-        if (!IsArgSet("-version")) {
+        if (!gArgs.IsArgSet("-version")) {
             strUsage +=
                 "\n" + _("Usage:") + "\n" +
                 "  bitcoin-cli [options] <command> [params]  " +
@@ -120,14 +136,14 @@ static int AppInitRPC(int argc, char *argv[]) {
         }
         return EXIT_SUCCESS;
     }
-    if (!boost::filesystem::is_directory(GetDataDir(false))) {
+    if (!fs::is_directory(GetDataDir(false))) {
         fprintf(stderr,
                 "Error: Specified data directory \"%s\" does not exist.\n",
-                GetArg("-datadir", "").c_str());
+                gArgs.GetArg("-datadir", "").c_str());
         return EXIT_FAILURE;
     }
     try {
-        ReadConfigFile(GetArg("-conf", BITCOIN_CONF_FILENAME));
+        gArgs.ReadConfigFile(gArgs.GetArg("-conf", BITCOIN_CONF_FILENAME));
     } catch (const std::exception &e) {
         fprintf(stderr, "Error reading configuration file: %s\n", e.what());
         return EXIT_FAILURE;
@@ -140,7 +156,7 @@ static int AppInitRPC(int argc, char *argv[]) {
         fprintf(stderr, "Error: %s\n", e.what());
         return EXIT_FAILURE;
     }
-    if (GetBoolArg("-rpcssl", false)) {
+    if (gArgs.GetBoolArg("-rpcssl", false)) {
         fprintf(stderr,
                 "Error: SSL mode for RPC (-rpcssl) is no longer supported.\n");
         return EXIT_FAILURE;
@@ -208,9 +224,15 @@ static void http_error_cb(enum evhttp_request_error err, void *ctx) {
 }
 #endif
 
-UniValue CallRPC(const std::string &strMethod, const UniValue &params) {
-    std::string host = GetArg("-rpcconnect", DEFAULT_RPCCONNECT);
-    int port = GetArg("-rpcport", BaseParams().RPCPort());
+static UniValue CallRPC(const std::string &strMethod, const UniValue &params) {
+    std::string host;
+    // In preference order, we choose the following for the port:
+    //     1. -rpcport
+    //     2. port in -rpcconnect (ie following : in ipv4 or ]: in ipv6)
+    //     3. default port for chain
+    int port = BaseParams().RPCPort();
+    SplitHostPort(gArgs.GetArg("-rpcconnect", DEFAULT_RPCCONNECT), port, host);
+    port = gArgs.GetArg("-rpcport", port);
 
     // Obtain event base
     raii_event_base base = obtain_event_base();
@@ -219,7 +241,8 @@ UniValue CallRPC(const std::string &strMethod, const UniValue &params) {
     raii_evhttp_connection evcon =
         obtain_evhttp_connection_base(base.get(), host, port);
     evhttp_connection_set_timeout(
-        evcon.get(), GetArg("-rpcclienttimeout", DEFAULT_HTTP_CLIENT_TIMEOUT));
+        evcon.get(),
+        gArgs.GetArg("-rpcclienttimeout", DEFAULT_HTTP_CLIENT_TIMEOUT));
 
     HTTPReply response;
     raii_evhttp_request req =
@@ -231,21 +254,21 @@ UniValue CallRPC(const std::string &strMethod, const UniValue &params) {
 
     // Get credentials
     std::string strRPCUserColonPass;
-    if (GetArg("-rpcpassword", "") == "") {
+    if (gArgs.GetArg("-rpcpassword", "") == "") {
         // Try fall back to cookie-based authentication if no password is
         // provided
         if (!GetAuthCookie(&strRPCUserColonPass)) {
             throw std::runtime_error(strprintf(
                 _("Could not locate RPC credentials. No authentication cookie "
-                  "could be found, and no rpcpassword is set in the "
-                  "configuration file (%s)"),
-                GetConfigFile(GetArg("-conf", BITCOIN_CONF_FILENAME))
+                  "could be found, and RPC password is not set.  See "
+                  "-rpcpassword and -stdinrpcpass.  Configuration file: (%s)"),
+                GetConfigFile(gArgs.GetArg("-conf", BITCOIN_CONF_FILENAME))
                     .string()
                     .c_str()));
         }
     } else {
-        strRPCUserColonPass =
-            GetArg("-rpcuser", "") + ":" + GetArg("-rpcpassword", "");
+        strRPCUserColonPass = gArgs.GetArg("-rpcuser", "") + ":" +
+                              gArgs.GetArg("-rpcpassword", "");
     }
 
     struct evkeyvalq *output_headers =
@@ -265,7 +288,21 @@ UniValue CallRPC(const std::string &strMethod, const UniValue &params) {
     assert(output_buffer);
     evbuffer_add(output_buffer, strRequest.data(), strRequest.size());
 
-    int r = evhttp_make_request(evcon.get(), req.get(), EVHTTP_REQ_POST, "/");
+    // check if we should use a special wallet endpoint
+    std::string endpoint = "/";
+    std::string walletName = gArgs.GetArg("-rpcwallet", "");
+    if (!walletName.empty()) {
+        char *encodedURI =
+            evhttp_uriencode(walletName.c_str(), walletName.size(), false);
+        if (encodedURI) {
+            endpoint = "/wallet/" + std::string(encodedURI);
+            free(encodedURI);
+        } else {
+            throw CConnectionFailed("uri-encode failed");
+        }
+    }
+    int r = evhttp_make_request(evcon.get(), req.get(), EVHTTP_REQ_POST,
+                                endpoint.c_str());
     // ownership moved to evcon in above call
     req.release();
     if (r != 0) {
@@ -314,9 +351,16 @@ int CommandLineRPC(int argc, char *argv[]) {
             argc--;
             argv++;
         }
+        std::string rpcPass;
+        if (gArgs.GetBoolArg("-stdinrpcpass", false)) {
+            if (!std::getline(std::cin, rpcPass))
+                throw std::runtime_error("-stdinrpcpass specified but failed "
+                                         "to read from standard input");
+            gArgs.ForceSetArg("-rpcpassword", rpcPass);
+        }
         std::vector<std::string> args =
             std::vector<std::string>(&argv[1], &argv[argc]);
-        if (GetBoolArg("-stdin", false)) {
+        if (gArgs.GetBoolArg("-stdin", false)) {
             // Read one arg per line from stdin and append
             std::string line;
             while (std::getline(std::cin, line)) {
@@ -332,14 +376,14 @@ int CommandLineRPC(int argc, char *argv[]) {
         args.erase(args.begin());
 
         UniValue params;
-        if (GetBoolArg("-named", DEFAULT_NAMED)) {
+        if (gArgs.GetBoolArg("-named", DEFAULT_NAMED)) {
             params = RPCConvertNamedValues(strMethod, args);
         } else {
             params = RPCConvertValues(strMethod, args);
         }
 
         // Execute and handle connection failures with -rpcwait
-        const bool fWait = GetBoolArg("-rpcwait", false);
+        const bool fWait = gArgs.GetBoolArg("-rpcwait", false);
         do {
             try {
                 const UniValue reply = CallRPC(strMethod, params);
@@ -365,6 +409,13 @@ int CommandLineRPC(int argc, char *argv[]) {
 
                         if (errMsg.isStr()) {
                             strPrint += "error message:\n" + errMsg.get_str();
+                        }
+
+                        if (errCode.isNum() &&
+                            errCode.get_int() == RPC_WALLET_NOT_SPECIFIED) {
+                            strPrint += "\nTry adding "
+                                        "\"-rpcwallet=<filename>\" option to "
+                                        "bitcoin-cli command line.";
                         }
                     }
                 } else {

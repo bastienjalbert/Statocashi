@@ -7,6 +7,7 @@
 
 #include "addressbookpage.h"
 #include "addresstablemodel.h"
+#include "config.h"
 #include "guiutil.h"
 #include "optionsmodel.h"
 #include "platformstyle.h"
@@ -35,7 +36,7 @@ SendCoinsEntry::SendCoinsEntry(const PlatformStyle *_platformStyle,
         tr("A message that was attached to the %1 URI which will be"
            " stored with the transaction for your reference. Note: "
            "This message will not be sent over the Bitcoin network.")
-            .arg(GUIUtil::URI_SCHEME));
+            .arg(GUIUtil::bitcoinURIScheme(GetConfig())));
 
     setCurrentWidget(ui->SendCoins);
 
@@ -113,7 +114,7 @@ void SendCoinsEntry::clear() {
     ui->memoTextLabel_s->clear();
     ui->payAmount_s->clear();
 
-    // update the display unit, to not use the default ("BCC")
+    // update the display unit, to not use the default ("BCH")
     updateDisplayUnit();
 }
 
@@ -140,13 +141,14 @@ bool SendCoinsEntry::validate() {
     }
 
     // Sending a zero amount is invalid
-    if (ui->payAmount->value(0) <= 0) {
+    if (ui->payAmount->value(0) <= Amount(0)) {
         ui->payAmount->setValid(false);
         retval = false;
     }
 
     // Reject dust outputs:
-    if (retval && GUIUtil::isDust(ui->payTo->text(), ui->payAmount->value())) {
+    if (retval && GUIUtil::isDust(ui->payTo->text(), ui->payAmount->value(),
+                                  model->getChainParams())) {
         ui->payAmount->setValid(false);
         retval = false;
     }

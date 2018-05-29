@@ -6,13 +6,12 @@
 #define BITCOIN_DBWRAPPER_H
 
 #include "clientversion.h"
+#include "fs.h"
 #include "serialize.h"
 #include "streams.h"
 #include "util.h"
 #include "utilstrencodings.h"
 #include "version.h"
-
-#include <boost/filesystem/path.hpp>
 
 #include <leveldb/db.h>
 #include <leveldb/write_batch.h>
@@ -43,7 +42,7 @@ void HandleError(const leveldb::Status &status);
  * specific database.
  */
 const std::vector<uint8_t> &GetObfuscateKey(const CDBWrapper &w);
-};
+}; // namespace dbwrapper_private
 
 /** Batch of changes queued to be written to a CDBWrapper */
 class CDBBatch {
@@ -220,9 +219,8 @@ public:
      * false, XOR
      *                        with a zero'd byte array.
      */
-    CDBWrapper(const boost::filesystem::path &path, size_t nCacheSize,
-               bool fMemory = false, bool fWipe = false,
-               bool obfuscate = false);
+    CDBWrapper(const fs::path &path, size_t nCacheSize, bool fMemory = false,
+               bool fWipe = false, bool obfuscate = false);
     ~CDBWrapper();
 
     template <typename K, typename V> bool Read(const K &key, V &value) const {
@@ -312,6 +310,22 @@ public:
         leveldb::Range range(slKey1, slKey2);
         pdb->GetApproximateSizes(&range, 1, &size);
         return size;
+    }
+
+    /**
+     * Compact a certain range of keys in the database.
+     */
+    template <typename K>
+    void CompactRange(const K &key_begin, const K &key_end) const {
+        CDataStream ssKey1(SER_DISK, CLIENT_VERSION),
+            ssKey2(SER_DISK, CLIENT_VERSION);
+        ssKey1.reserve(DBWRAPPER_PREALLOC_KEY_SIZE);
+        ssKey2.reserve(DBWRAPPER_PREALLOC_KEY_SIZE);
+        ssKey1 << key_begin;
+        ssKey2 << key_end;
+        leveldb::Slice slKey1(ssKey1.data(), ssKey1.size());
+        leveldb::Slice slKey2(ssKey2.data(), ssKey2.size());
+        pdb->CompactRange(&slKey1, &slKey2);
     }
 };
 

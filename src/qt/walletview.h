@@ -19,6 +19,7 @@ class SendCoinsRecipient;
 class TransactionView;
 class WalletModel;
 class AddressBookPage;
+class Config;
 
 QT_BEGIN_NAMESPACE
 class QModelIndex;
@@ -37,7 +38,8 @@ class WalletView : public QStackedWidget {
     Q_OBJECT
 
 public:
-    explicit WalletView(const PlatformStyle *platformStyle, QWidget *parent);
+    explicit WalletView(const PlatformStyle *platformStyle, const Config *cfg,
+                        QWidget *parent);
     ~WalletView();
 
     void setBitcoinGUI(BitcoinGUI *gui);
@@ -129,9 +131,9 @@ Q_SIGNALS:
     /** HD-Enabled status of wallet changed (only possible during startup) */
     void hdEnabledStatusChanged(int hdEnabled);
     /** Notify that a new transaction appeared */
-    void incomingTransaction(const QString &date, int unit,
-                             const CAmount &amount, const QString &type,
-                             const QString &address, const QString &label);
+    void incomingTransaction(const QString &date, int unit, const Amount amount,
+                             const QString &type, const QString &address,
+                             const QString &label);
     /** Notify that the out of sync warning icon has been pressed */
     void outOfSyncWarningClicked();
 };

@@ -5,6 +5,8 @@
 
 #include "protocol.h"
 
+#include "chainparams.h"
+#include "config.h"
 #include "util.h"
 #include "utilstrencodings.h"
 
@@ -39,10 +41,17 @@ const char *SENDCMPCT = "sendcmpct";
 const char *CMPCTBLOCK = "cmpctblock";
 const char *GETBLOCKTXN = "getblocktxn";
 const char *BLOCKTXN = "blocktxn";
-};
 
-/** All known message types. Keep this in the same order as the list of
- * messages above and in protocol.h.
+bool IsBlockLike(const std::string &strCommand) {
+    return strCommand == NetMsgType::BLOCK ||
+           strCommand == NetMsgType::CMPCTBLOCK ||
+           strCommand == NetMsgType::BLOCKTXN;
+}
+}; // namespace NetMsgType
+
+/**
+ * All known message types. Keep this in the same order as the list of messages
+ * above and in protocol.h.
  */
 static const std::string allNetMessageTypes[] = {
     NetMsgType::VERSION,     NetMsgType::VERACK,     NetMsgType::ADDR,
@@ -59,17 +68,19 @@ static const std::vector<std::string>
     allNetMessageTypesVec(allNetMessageTypes,
                           allNetMessageTypes + ARRAYLEN(allNetMessageTypes));
 
-CMessageHeader::CMessageHeader(const MessageStartChars &pchMessageStartIn) {
-    memcpy(pchMessageStart, pchMessageStartIn, MESSAGE_START_SIZE);
+CMessageHeader::CMessageHeader(const MessageMagic &pchMessageStartIn) {
+    memcpy(std::begin(pchMessageStart), std::begin(pchMessageStartIn),
+           MESSAGE_START_SIZE);
     memset(pchCommand, 0, sizeof(pchCommand));
     nMessageSize = -1;
     memset(pchChecksum, 0, CHECKSUM_SIZE);
 }
 
-CMessageHeader::CMessageHeader(const MessageStartChars &pchMessageStartIn,
+CMessageHeader::CMessageHeader(const MessageMagic &pchMessageStartIn,
                                const char *pszCommand,
                                unsigned int nMessageSizeIn) {
-    memcpy(pchMessageStart, pchMessageStartIn, MESSAGE_START_SIZE);
+    memcpy(std::begin(pchMessageStart), std::begin(pchMessageStartIn),
+           MESSAGE_START_SIZE);
     memset(pchCommand, 0, sizeof(pchCommand));
     strncpy(pchCommand, pszCommand, COMMAND_SIZE);
     nMessageSize = nMessageSizeIn;
@@ -81,30 +92,89 @@ std::string CMessageHeader::GetCommand() const {
                        pchCommand + strnlen(pchCommand, COMMAND_SIZE));
 }
 
-bool CMessageHeader::IsValid(const MessageStartChars &pchMessageStartIn) const {
+static bool
+CheckHeaderMagicAndCommand(const CMessageHeader &header,
+                           const CMessageHeader::MessageMagic &magic) {
     // Check start string
-    if (memcmp(pchMessageStart, pchMessageStartIn, MESSAGE_START_SIZE) != 0)
+    if (memcmp(std::begin(header.pchMessageStart), std::begin(magic),
+               CMessageHeader::MESSAGE_START_SIZE) != 0) {
         return false;
+    }
 
     // Check the command string for errors
-    for (const char *p1 = pchCommand; p1 < pchCommand + COMMAND_SIZE; p1++) {
+    for (const char *p1 = header.pchCommand;
+         p1 < header.pchCommand + CMessageHeader::COMMAND_SIZE; p1++) {
         if (*p1 == 0) {
             // Must be all zeros after the first zero
-            for (; p1 < pchCommand + COMMAND_SIZE; p1++)
-                if (*p1 != 0) return false;
-        } else if (*p1 < ' ' || *p1 > 0x7E)
+            for (; p1 < header.pchCommand + CMessageHeader::COMMAND_SIZE;
+                 p1++) {
+                if (*p1 != 0) {
+                    return false;
+                }
+            }
+        } else if (*p1 < ' ' || *p1 > 0x7E) {
             return false;
+        }
+    }
+
+    return true;
+}
+
+bool CMessageHeader::IsValid(const Config &config) const {
+    // Check start string
+    if (!CheckHeaderMagicAndCommand(*this,
+                                    config.GetChainParams().NetMagic())) {
+        return false;
     }
 
     // Message size
-    if (nMessageSize > MAX_SIZE) {
-        LogPrintf("CMessageHeader::IsValid(): (%s, %u bytes) nMessageSize > "
-                  "MAX_SIZE\n",
+    if (IsOversized(config)) {
+        LogPrintf("CMessageHeader::IsValid(): (%s, %u bytes) is oversized\n",
                   GetCommand(), nMessageSize);
         return false;
     }
 
     return true;
+}
+
+/**
+ * This is a transition method in order to stay compatible with older code that
+ * do not use the config. It assumes message will not get too large. This cannot
+ * be used for any piece of code that will download blocks as blocks may be
+ * bigger than the permitted size. Idealy, code that uses this function should
+ * be migrated toward using the config.
+ */
+bool CMessageHeader::IsValidWithoutConfig(const MessageMagic &magic) const {
+    // Check start string
+    if (!CheckHeaderMagicAndCommand(*this, magic)) {
+        return false;
+    }
+
+    // Message size
+    if (nMessageSize > MAX_PROTOCOL_MESSAGE_LENGTH) {
+        LogPrintf(
+            "CMessageHeader::IsValidForSeeder(): (%s, %u bytes) is oversized\n",
+            GetCommand(), nMessageSize);
+        return false;
+    }
+
+    return true;
+}
+
+bool CMessageHeader::IsOversized(const Config &config) const {
+    // If the message doesn't not contain a block content, check against
+    // MAX_PROTOCOL_MESSAGE_LENGTH.
+    if (nMessageSize > MAX_PROTOCOL_MESSAGE_LENGTH &&
+        !NetMsgType::IsBlockLike(GetCommand())) {
+        return true;
+    }
+
+    // Scale the maximum accepted size with the block size.
+    if (nMessageSize > 2 * config.GetMaxBlockSize()) {
+        return true;
+    }
+
+    return false;
 }
 
 CAddress::CAddress() : CService() {
@@ -121,23 +191,8 @@ void CAddress::Init() {
     nTime = 100000000;
 }
 
-CInv::CInv() {
-    type = 0;
-    hash.SetNull();
-}
-
-CInv::CInv(int typeIn, const uint256 &hashIn) {
-    type = typeIn;
-    hash = hashIn;
-}
-
-bool operator<(const CInv &a, const CInv &b) {
-    return (a.type < b.type || (a.type == b.type && a.hash < b.hash));
-}
-
 std::string CInv::GetCommand() const {
     std::string cmd;
-    if (type & MSG_EXT_FLAG) cmd.append("extblk-");
     switch (GetKind()) {
         case MSG_TX:
             return cmd.append(NetMsgType::TX);

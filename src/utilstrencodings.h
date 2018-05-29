@@ -25,6 +25,8 @@ enum SafeChars {
     SAFE_CHARS_DEFAULT,
     //!< BIP-0014 subset
     SAFE_CHARS_UA_COMMENT,
+    //!< Chars allowed in filenames
+    SAFE_CHARS_FILENAME,
 };
 
 /**
@@ -40,7 +42,15 @@ std::string SanitizeString(const std::string &str,
 std::vector<uint8_t> ParseHex(const char *psz);
 std::vector<uint8_t> ParseHex(const std::string &str);
 signed char HexDigit(char c);
+/**
+ * Returns true if each character in str is a hex character, and has an even
+ * number of hex digits.
+ */
 bool IsHex(const std::string &str);
+/**
+ * Return true if the string is a hex number, optionally prefixed with "0x"
+ */
+bool IsHexNumber(const std::string &str);
 std::vector<uint8_t> DecodeBase64(const char *p, bool *pfInvalid = nullptr);
 std::string DecodeBase64(const std::string &str);
 std::string EncodeBase64(const uint8_t *pch, size_t len);
@@ -50,6 +60,7 @@ std::string DecodeBase32(const std::string &str);
 std::string EncodeBase32(const uint8_t *pch, size_t len);
 std::string EncodeBase32(const std::string &str);
 
+void SplitHostPort(std::string in, int &portOut, std::string &hostOut);
 std::string i64tostr(int64_t n);
 std::string itostr(int n);
 int64_t atoi64(const char *psz);

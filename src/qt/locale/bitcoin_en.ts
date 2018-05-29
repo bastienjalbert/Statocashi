@@ -3865,7 +3865,7 @@
     </message>
 </context>
 <context>
-    <name>bitcoin-core</name>
+    <name>bitcoin-abc</name>
     <message>
         <location filename="../bitcoinstrings.cpp" line="+318"/>
         <source>Options:</source>
@@ -3953,8 +3953,8 @@
     </message>
     <message>
         <location line="-360"/>
-        <source>Bitcoin Core</source>
-        <translation type="unfinished">Bitcoin Core</translation>
+        <source>Bitcoin ABC</source>
+        <translation type="unfinished">Bitcoin ABC</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -4889,11 +4889,6 @@
     <message>
         <location line="+1"/>
         <source>Relay non-P2SH multisig (default: %u)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+7"/>
-        <source>Send transactions with full-RBF opt-in enabled (default: %u)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
