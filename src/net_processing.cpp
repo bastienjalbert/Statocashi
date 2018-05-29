@@ -1777,6 +1777,7 @@ static bool ProcessMessage(const Config &config, CNode *pfrom,
         LOCK(cs_main);
 
         std::vector<CInv> vToFetch;
+        
 
         for (size_t nInv = 0; nInv < vInv.size(); nInv++) {
             CInv &inv = vInv[nInv];
@@ -1790,7 +1791,7 @@ static bool ProcessMessage(const Config &config, CNode *pfrom,
                      fAlreadyHave ? "have" : "new", pfrom->id);
 
             if (inv.type == MSG_TX) {
-                inv.type |= nFetchFlags;
+                // deleted at 15 may 2018 : fork inv.type |= nFetchFlags;
                 statsClient.inc("message.received.inv_tx", 1.0f);
             }
 

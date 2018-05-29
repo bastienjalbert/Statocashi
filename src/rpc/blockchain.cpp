@@ -1030,7 +1030,7 @@ UniValue gettxoutsetinfo(const Config &config, const JSONRPCRequest &request) {
         statsClient.gauge("utxoset.txOutputs", stats.nTransactionOutputs, 1.0f);
         statsClient.gauge("utxoset.dbSizeBytes", stats.nDiskSize, 1.0f);
         statsClient.gauge("utxoset.blockHeight", stats.nHeight, 1.0f);
-        statsClient.gauge("utxoset.totalBTCAmount", (double)stats.nTotalAmount / 100000000, 1.0f);
+        statsClient.gauge("utxoset.totalBTCAmount", static_cast<double>(stats.nTotalAmount.GetSatoshis()) / static_cast<double>(COIN.GetSatoshis()), 1.0f);
         
     } else {
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Unable to read UTXO set");

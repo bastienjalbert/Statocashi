@@ -157,18 +157,6 @@ Legend : <-/-> = dataflux
 
 Now be patient, it depend of your computer (15 mins ~ with 4 Cores i5, more than 40minutes with 2 Cores cpu).
 
-**Create a notification script**
-
-First create a file to notify mining info :
-> ``` root@bash: nano /statocashi/where_you_want/notify.sh ``` then paste this :
-> ```#!/bin/bash
->while true
->do
->/statocashi/repo/src/bitcoin-cli getmininginfo
->sleep 60
->done
-> ```
-
 **Create a bitcoin.conf file**
 
 > ``` root@bash: nano /statocashi/node_files/bitcoin.conf ``` then paste this :
@@ -179,6 +167,7 @@ First create a file to notify mining info :
 >rpcbind=127.0.0.1
 ># this is my node IP  ;)
 >addnode=163.172.219.62:8333 
+>blocknotify=/path/to/Statocashi/src/bitcoin-cli -conf=/path/to/statocash/conf/bitcoin.without.node.conf getmininginfo && sleep 30 && /path/to/Statocashi/src/bitcoin-cli -conf=/path/to/statocash/conf/bitcoin.without.node.conf gettxoutsetinfo
 >```
 
 
@@ -203,9 +192,7 @@ First create a file to notify mining info :
 
 At this stage, you can access to your grafana node (http://ip_addr:3000) (default login admin/admin) and start to copy my Dashboards (from preview website) to your grafana. Don't forget to add the Datasource (graphite : localhost:8181) to your Grafana configuration file.
 
-Notice that you may have to totally synced your node to see coherent data ...
-Once your node is totally sync with the network, run the script to get mining info :
-> ``` root@bash: nohup bash /statocashi/where_you_want/notify.sh & ```
+Notice that you may have to totally synced your node to see coherent data ... 
 
 If you get trouble dont hesitate to open an issue or contact me !
 
