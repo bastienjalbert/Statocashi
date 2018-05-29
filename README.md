@@ -54,27 +54,27 @@ Statocashi node -> statsd -> graphite <- grafana (web interface)
 Legend : <-/-> = dataflux
 
 ### Dependencies :
-> **Node.js:** Download node [http://nodejs.org/download/] and install node.js, on ubuntu just run 
+**Node.js:** Download node [http://nodejs.org/download/] and install node.js, on ubuntu just run 
 
 > ``` root@bash: sudo apt-get install nodejs npm ```.
 
-> **Forever:** just run 
+**Forever:** just run 
 
 > ``` root@bash: sudo npm install forever ```.
 
-> **Statsd:** Download [https://github.com/etsy/statsd] (the github repo of statsd) and copy all files in a folder (like /opt/statsd/).
+**Statsd:** Download [https://github.com/etsy/statsd] (the github repo of statsd) and copy all files in a folder (like /opt/statsd/).
 
-> **Graphite:** There are many way to install graphite. I used this one : [http://graphite.readthedocs.io/en/latest/install-pip.html]. If you had dependencies problems you can try this : [https://pastebin.com/raw/a9v5UkbK].
+**Graphite:** There are many way to install graphite. I used this one : [http://graphite.readthedocs.io/en/latest/install-pip.html]. If you had dependencies problems you can try this : [https://pastebin.com/raw/a9v5UkbK].
 
-> **Apache2:** Debian/ubuntu based 
+**Apache2:** Debian/ubuntu based 
 
 > ``` root@bash: sudo apt-get install apache2 ```.
 
-> **Memcached:** Debian/ubuntu based 
+**Memcached:** Debian/ubuntu based 
 
 > ``` root@bash: sudo apt-get install memcached ```.
 
-> **Grafana:** Here too, this should be enough (or check at [http://docs.grafana.org/installation/]) :
+**Grafana:** Here too, this should be enough (or check at [http://docs.grafana.org/installation/]) :
 
 > ``` root@bash: sudo apt-get install grafana ``` 
 
