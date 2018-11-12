@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <set>
 
-#include <boost/algorithm/string/case_conv.hpp> // for to_lower()
 #include <univalue.h>
 
 class CRPCConvertParam {
@@ -45,6 +44,7 @@ static const CRPCConvertParam vRPCConvertParams[] = {
     {"listreceivedbyaccount", 0, "minconf"},
     {"listreceivedbyaccount", 1, "include_empty"},
     {"listreceivedbyaccount", 2, "include_watchonly"},
+    {"listreceivedbyaddress", 3, "address_filter"},
     {"getbalance", 1, "minconf"},
     {"getbalance", 2, "include_watchonly"},
     {"getblockhash", 0, "height"},
@@ -75,7 +75,8 @@ static const CRPCConvertParam vRPCConvertParams[] = {
     {"listunspent", 0, "minconf"},
     {"listunspent", 1, "maxconf"},
     {"listunspent", 2, "addresses"},
-    {"getblock", 1, "verbose"},
+    {"listunspent", 4, "query_options"},
+    {"getblock", 1, "verbosity"},
     {"getblockheader", 1, "verbose"},
     {"getchaintxstats", 0, "nblocks"},
     {"gettransaction", 1, "include_watchonly"},
@@ -86,6 +87,7 @@ static const CRPCConvertParam vRPCConvertParams[] = {
     {"signrawtransaction", 1, "prevtxs"},
     {"signrawtransaction", 2, "privkeys"},
     {"sendrawtransaction", 1, "allowhighfees"},
+    {"combinerawtransaction", 0, "txs"},
     {"fundrawtransaction", 1, "options"},
     {"gettxout", 1, "n"},
     {"gettxout", 2, "include_mempool"},
@@ -123,6 +125,8 @@ static const CRPCConvertParam vRPCConvertParams[] = {
     {"echojson", 7, "arg7"},
     {"echojson", 8, "arg8"},
     {"echojson", 9, "arg9"},
+    {"rescanblockchain", 0, "start_height"},
+    {"rescanblockchain", 1, "stop_height"},
 };
 
 class CRPCConvertTable {

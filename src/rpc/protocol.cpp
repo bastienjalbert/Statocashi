@@ -27,21 +27,22 @@
 UniValue JSONRPCRequestObj(const std::string &strMethod, const UniValue &params,
                            const UniValue &id) {
     UniValue request(UniValue::VOBJ);
-    request.push_back(Pair("method", strMethod));
-    request.push_back(Pair("params", params));
-    request.push_back(Pair("id", id));
+    request.pushKV("method", strMethod);
+    request.pushKV("params", params);
+    request.pushKV("id", id);
     return request;
 }
 
 UniValue JSONRPCReplyObj(const UniValue &result, const UniValue &error,
                          const UniValue &id) {
     UniValue reply(UniValue::VOBJ);
-    if (!error.isNull())
-        reply.push_back(Pair("result", NullUniValue));
-    else
-        reply.push_back(Pair("result", result));
-    reply.push_back(Pair("error", error));
-    reply.push_back(Pair("id", id));
+    if (!error.isNull()) {
+        reply.pushKV("result", NullUniValue);
+    } else {
+        reply.pushKV("result", result);
+    }
+    reply.pushKV("error", error);
+    reply.pushKV("id", id);
     return reply;
 }
 
@@ -53,8 +54,8 @@ std::string JSONRPCReply(const UniValue &result, const UniValue &error,
 
 UniValue JSONRPCError(int code, const std::string &message) {
     UniValue error(UniValue::VOBJ);
-    error.push_back(Pair("code", code));
-    error.push_back(Pair("message", message));
+    error.pushKV("code", code);
+    error.pushKV("message", message);
     return error;
 }
 
@@ -67,7 +68,9 @@ static const std::string COOKIEAUTH_FILE = ".cookie";
 
 fs::path GetAuthCookieFile() {
     fs::path path(gArgs.GetArg("-rpccookiefile", COOKIEAUTH_FILE));
-    if (!path.is_complete()) path = GetDataDir() / path;
+    if (!path.is_complete()) {
+        path = GetDataDir() / path;
+    }
     return path;
 }
 
@@ -93,7 +96,9 @@ bool GenerateAuthCookie(std::string *cookie_out) {
     file.close();
     LogPrintf("Generated RPC authentication cookie %s\n", filepath.string());
 
-    if (cookie_out) *cookie_out = cookie;
+    if (cookie_out) {
+        *cookie_out = cookie;
+    }
     return true;
 }
 
@@ -102,11 +107,15 @@ bool GetAuthCookie(std::string *cookie_out) {
     std::string cookie;
     fs::path filepath = GetAuthCookieFile();
     file.open(filepath.string().c_str());
-    if (!file.is_open()) return false;
+    if (!file.is_open()) {
+        return false;
+    }
     std::getline(file, cookie);
     file.close();
 
-    if (cookie_out) *cookie_out = cookie;
+    if (cookie_out) {
+        *cookie_out = cookie;
+    }
     return true;
 }
 

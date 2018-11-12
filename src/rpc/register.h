@@ -2,12 +2,13 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef BITCOIN_RPCREGISTER_H
-#define BITCOIN_RPCREGISTER_H
+#ifndef BITCOIN_RPC_REGISTER_H
+#define BITCOIN_RPC_REGISTER_H
 
 /** These are in one header file to avoid creating tons of single-function
  * headers for everything under src/rpc/ */
 class CRPCTable;
+class RPCServer;
 
 /** Register block chain RPC commands */
 void RegisterBlockchainRPCCommands(CRPCTable &tableRPC);
@@ -22,7 +23,11 @@ void RegisterRawTransactionRPCCommands(CRPCTable &tableRPC);
 /** Register ABC RPC commands */
 void RegisterABCRPCCommands(CRPCTable &tableRPC);
 
-static inline void RegisterAllRPCCommands(CRPCTable &t) {
+/**
+ * Register all context-free (legacy) RPC commands, except for wallet and dump
+ * RPC commands.
+ */
+static inline void RegisterAllContextFreeRPCCommands(CRPCTable &t) {
     RegisterBlockchainRPCCommands(t);
     RegisterNetRPCCommands(t);
     RegisterMiscRPCCommands(t);
@@ -31,4 +36,15 @@ static inline void RegisterAllRPCCommands(CRPCTable &t) {
     RegisterABCRPCCommands(t);
 }
 
-#endif
+/**
+ * Register all context-sensitive RPC commands.
+ */
+static inline void RegisterAllRPCCommands(const Config &config,
+                                          RPCServer &rpcServer,
+                                          CRPCTable &rpcTable) {
+    // TODO Register context-sensitive RPC commands using rpcServer
+
+    RegisterAllContextFreeRPCCommands(rpcTable);
+}
+
+#endif // BITCOIN_RPC_REGISTER_H

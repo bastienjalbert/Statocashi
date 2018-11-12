@@ -26,7 +26,7 @@ static UniValue getexcessiveblock(const Config &config,
     }
 
     UniValue ret(UniValue::VOBJ);
-    ret.push_back(Pair("excessiveBlockSize", config.GetMaxBlockSize()));
+    ret.pushKV("excessiveBlockSize", config.GetMaxBlockSize());
     return ret;
 }
 
@@ -50,17 +50,20 @@ static UniValue setexcessiveblock(Config &config,
         ebs = request.params[0].get_int64();
     } else {
         std::string temp = request.params[0].get_str();
-        if (temp[0] == '-') boost::throw_exception(boost::bad_lexical_cast());
+        if (temp[0] == '-') {
+            boost::throw_exception(boost::bad_lexical_cast());
+        }
         ebs = boost::lexical_cast<uint64_t>(temp);
     }
 
     // Do not allow maxBlockSize to be set below historic 1MB limit
-    if (ebs <= LEGACY_MAX_BLOCK_SIZE)
+    if (ebs <= LEGACY_MAX_BLOCK_SIZE) {
         throw JSONRPCError(
             RPC_INVALID_PARAMETER,
             std::string(
                 "Invalid parameter, excessiveblock must be larger than ") +
                 std::to_string(LEGACY_MAX_BLOCK_SIZE));
+    }
 
     // Set the new max block size.
     if (!config.SetMaxBlockSize(ebs)) {
@@ -74,16 +77,16 @@ static UniValue setexcessiveblock(Config &config,
 }
 
 // clang-format off
-static const CRPCCommand commands[] = {
-    //  category            name                      actor (function)        okSafeMode
+static const ContextFreeRPCCommand commands[] = {
+    //  category            name                      actor (function)        argNames
     //  ------------------- ------------------------  ----------------------  ----------
-    { "network",            "getexcessiveblock",      getexcessiveblock,      true, {}},
-    { "network",            "setexcessiveblock",      setexcessiveblock,      true, {"maxBlockSize"}},
+    { "network",            "getexcessiveblock",      getexcessiveblock,      {}},
+    { "network",            "setexcessiveblock",      setexcessiveblock,      {"maxBlockSize"}},
 };
 // clang-format on
 
-void RegisterABCRPCCommands(CRPCTable &tableRPC) {
+void RegisterABCRPCCommands(CRPCTable &t) {
     for (unsigned int vcidx = 0; vcidx < ARRAYLEN(commands); vcidx++) {
-        tableRPC.appendCommand(commands[vcidx].name, &commands[vcidx]);
+        t.appendCommand(commands[vcidx].name, &commands[vcidx]);
     }
 }

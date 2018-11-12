@@ -14,15 +14,6 @@
 #include <memory>
 #include <vector>
 
-struct CDNSSeedData {
-    std::string name, host;
-    bool supportsServiceBitsFiltering;
-    CDNSSeedData(const std::string &strName, const std::string &strHost,
-                 bool supportsServiceBitsFilteringIn = false)
-        : name(strName), host(strHost),
-          supportsServiceBitsFiltering(supportsServiceBitsFilteringIn) {}
-};
-
 struct SeedSpec6 {
     uint8_t addr[16];
     uint16_t port;
@@ -65,8 +56,6 @@ public:
     int GetDefaultPort() const { return nDefaultPort; }
 
     const CBlock &GenesisBlock() const { return genesis; }
-    /** Make miner wait to have peers to avoid wasting work */
-    bool MiningRequiresPeers() const { return fMiningRequiresPeers; }
     /** Default value for -checkmempool and -checkblockindex argument */
     bool DefaultConsistencyChecks() const { return fDefaultConsistencyChecks; }
     /** Policy: Filter transactions that do not match well-defined patterns */
@@ -79,7 +68,8 @@ public:
     bool MineBlocksOnDemand() const { return fMineBlocksOnDemand; }
     /** Return the BIP70 network string (main, test or regtest) */
     std::string NetworkIDString() const { return strNetworkID; }
-    const std::vector<CDNSSeedData> &DNSSeeds() const { return vSeeds; }
+    /** Return the list of hostnames to look up for DNS seeds */
+    const std::vector<std::string> &DNSSeeds() const { return vSeeds; }
     const std::vector<uint8_t> &Base58Prefix(Base58Type type) const {
         return base58Prefixes[type];
     }
@@ -87,8 +77,6 @@ public:
     const std::vector<SeedSpec6> &FixedSeeds() const { return vFixedSeeds; }
     const CCheckpointData &Checkpoints() const { return checkpointData; }
     const ChainTxData &TxData() const { return chainTxData; }
-    void UpdateBIP9Parameters(Consensus::DeploymentPos d, int64_t nStartTime,
-                              int64_t nTimeout);
 
 protected:
     CChainParams() {}
@@ -98,13 +86,12 @@ protected:
     CMessageHeader::MessageMagic netMagic;
     int nDefaultPort;
     uint64_t nPruneAfterHeight;
-    std::vector<CDNSSeedData> vSeeds;
+    std::vector<std::string> vSeeds;
     std::vector<uint8_t> base58Prefixes[MAX_BASE58_TYPES];
     std::string cashaddrPrefix;
     std::string strNetworkID;
     CBlock genesis;
     std::vector<SeedSpec6> vFixedSeeds;
-    bool fMiningRequiresPeers;
     bool fDefaultConsistencyChecks;
     bool fRequireStandard;
     bool fMineBlocksOnDemand;
@@ -130,11 +117,5 @@ const CChainParams &Params();
  * @throws std::runtime_error when the chain is not supported.
  */
 void SelectParams(const std::string &chain);
-
-/**
- * Allows modifying the BIP9 regtest parameters.
- */
-void UpdateBIP9Parameters(Consensus::DeploymentPos d, int64_t nStartTime,
-                          int64_t nTimeout);
 
 #endif // BITCOIN_CHAINPARAMS_H

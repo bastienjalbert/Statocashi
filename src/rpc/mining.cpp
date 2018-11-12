@@ -5,6 +5,7 @@
 
 #include "rpc/mining.h"
 #include "amount.h"
+#include "blockvalidity.h"
 #include "chain.h"
 #include "chainparams.h"
 #include "config.h"
@@ -247,18 +248,18 @@ static UniValue getmininginfo(const Config &config,
     LOCK(cs_main);
 
     UniValue obj(UniValue::VOBJ);
-    obj.push_back(Pair("blocks", int(chainActive.Height())));
-    obj.push_back(Pair("currentblocksize", uint64_t(nLastBlockSize)));
-    obj.push_back(Pair("currentblocktx", uint64_t(nLastBlockTx)));
-    obj.push_back(Pair("difficulty", double(GetDifficulty(chainActive.Tip()))));
+    obj.pushKV("blocks", int(chainActive.Height()));
+    obj.pushKV("currentblocksize", uint64_t(nLastBlockSize));
+    obj.pushKV("currentblocktx", uint64_t(nLastBlockTx));
+    obj.pushKV("difficulty", double(GetDifficulty(chainActive.Tip())));
     obj.push_back(
         Pair("blockprioritypercentage",
              uint8_t(gArgs.GetArg("-blockprioritypercentage",
-                                  DEFAULT_BLOCK_PRIORITY_PERCENTAGE))));
-    obj.push_back(Pair("errors", GetWarnings("statusbar")));
-    obj.push_back(Pair("networkhashps", getnetworkhashps(config, request)));
-    obj.push_back(Pair("pooledtx", uint64_t(mempool.size())));
-    obj.push_back(Pair("chain", config.GetChainParams().NetworkIDString()));
+                                  DEFAULT_BLOCK_PRIORITY_PERCENTAGE)))); 
+    obj.pushKV("errors", GetWarnings("statusbar"));
+    obj.pushKV("networkhashps", getnetworkhashps(config, request));
+    obj.pushKV("pooledtx", uint64_t(mempool.size()));
+    obj.pushKV("chain", config.GetChainParams().NetworkIDString());
     statsClient.gauge("network.hashesPerSecond", getnetworkhashps(config, request).get_real());
     statsClient.gauge("network.difficulty", (double)GetDifficulty(chainActive.Tip()));
     return obj;
@@ -297,7 +298,7 @@ static UniValue prioritisetransaction(const Config &config,
     LOCK(cs_main);
 
     uint256 hash = ParseHashStr(request.params[0].get_str(), "txid");
-    Amount nAmount(request.params[2].get_int64());
+    Amount nAmount = request.params[2].get_int64() * SATOSHI;
 
     mempool.PrioritiseTransaction(hash, request.params[0].get_str(),
                                   request.params[1].get_real(), nAmount);
@@ -326,15 +327,6 @@ static UniValue BIP22ValidationResult(const Config &config,
 
     // Should be impossible.
     return "valid?";
-}
-
-std::string gbt_vb_name(const Consensus::DeploymentPos pos) {
-    const struct BIP9DeploymentInfo &vbinfo = VersionBitsDeploymentInfo[pos];
-    std::string s = vbinfo.name;
-    if (!vbinfo.gbt_force) {
-        s.insert(s.begin(), '!');
-    }
-    return s;
 }
 
 static UniValue getblocktemplate(const Config &config,
@@ -369,12 +361,6 @@ static UniValue getblocktemplate(const Config &config,
             "feature, 'longpoll', 'coinbasetxn', 'coinbasevalue', 'proposal', "
             "'serverlist', 'workid'\n"
             "           ,...\n"
-            "       ],\n"
-            "       \"rules\":[            (array, optional) A list of "
-            "strings\n"
-            "           \"support\"          (string) client side supported "
-            "softfork deployment\n"
-            "           ,...\n"
             "       ]\n"
             "     }\n"
             "\n"
@@ -383,17 +369,6 @@ static UniValue getblocktemplate(const Config &config,
             "{\n"
             "  \"version\" : n,                    (numeric) The preferred "
             "block version\n"
-            "  \"rules\" : [ \"rulename\", ... ],    (array of strings) "
-            "specific block rules that are to be enforced\n"
-            "  \"vbavailable\" : {                 (json object) set of "
-            "pending, supported versionbit (BIP 9) softfork deployments\n"
-            "      \"rulename\" : bitnumber          (numeric) identifies the "
-            "bit number as indicating acceptance and readiness for the named "
-            "softfork rule\n"
-            "      ,...\n"
-            "  },\n"
-            "  \"vbrequired\" : n,                 (numeric) bit mask of "
-            "versionbits the server requires set in submissions\n"
             "  \"previousblockhash\" : \"xxxx\",     (string) The hash of "
             "current highest block\n"
             "  \"transactions\" : [                (array) contents of "
@@ -473,7 +448,6 @@ static UniValue getblocktemplate(const Config &config,
     std::string strMode = "template";
     UniValue lpval = NullUniValue;
     std::set<std::string> setClientRules;
-    int64_t nMaxVersionPreVB = -1;
     if (request.params.size() > 0) {
         const UniValue &oparam = request.params[0].get_obj();
         const UniValue &modeval = find_value(oparam, "mode");
@@ -506,7 +480,7 @@ static UniValue getblocktemplate(const Config &config,
                 if (pindex->IsValid(BlockValidity::SCRIPTS)) {
                     return "duplicate";
                 }
-                if (pindex->nStatus & BLOCK_FAILED_MASK) {
+                if (pindex->nStatus.isInvalid()) {
                     return "duplicate-invalid";
                 }
                 return "duplicate-inconclusive";
@@ -523,21 +497,6 @@ static UniValue getblocktemplate(const Config &config,
             TestBlockValidity(config, state, block, pindexPrev,
                               validationOptions);
             return BIP22ValidationResult(config, state);
-        }
-
-        const UniValue &aClientRules = find_value(oparam, "rules");
-        if (aClientRules.isArray()) {
-            for (size_t i = 0; i < aClientRules.size(); ++i) {
-                const UniValue &v = aClientRules[i];
-                setClientRules.insert(v.get_str());
-            }
-        } else {
-            // NOTE: It is important that this NOT be read if versionbits is
-            // supported
-            const UniValue &uvMaxVersion = find_value(oparam, "maxversion");
-            if (uvMaxVersion.isNum()) {
-                nMaxVersionPreVB = uvMaxVersion.get_int64();
-            }
         }
     }
 
@@ -567,7 +526,7 @@ static UniValue getblocktemplate(const Config &config,
         // Wait to respond until either the best block changes, OR a minute has
         // passed and there are more transactions
         uint256 hashWatchedChain;
-        boost::system_time checktxtime;
+        std::chrono::steady_clock::time_point checktxtime;
         unsigned int nTransactionsUpdatedLastLP;
 
         if (lpval.isStr()) {
@@ -587,18 +546,18 @@ static UniValue getblocktemplate(const Config &config,
         LEAVE_CRITICAL_SECTION(cs_main);
         {
             checktxtime =
-                boost::get_system_time() + boost::posix_time::minutes(1);
+                std::chrono::steady_clock::now() + std::chrono::minutes(1);
 
-            boost::unique_lock<boost::mutex> lock(csBestBlock);
-            while (chainActive.Tip()->GetBlockHash() == hashWatchedChain &&
-                   IsRPCRunning()) {
-                if (!cvBlockChange.timed_wait(lock, checktxtime)) {
+            WAIT_LOCK(g_best_block_mutex, lock);
+            while (g_best_block == hashWatchedChain && IsRPCRunning()) {
+                if (g_best_block_cv.wait_until(lock, checktxtime) ==
+                    std::cv_status::timeout) {
                     // Timeout: Check transactions for update
                     if (mempool.GetTransactionsUpdated() !=
                         nTransactionsUpdatedLastLP) {
                         break;
                     }
-                    checktxtime += boost::posix_time::seconds(10);
+                    checktxtime += std::chrono::seconds(10);
                 }
             }
         }
@@ -640,8 +599,6 @@ static UniValue getblocktemplate(const Config &config,
 
     // pointer for convenience
     CBlock *pblock = &pblocktemplate->block;
-    const Consensus::Params &consensusParams =
-        config.GetChainParams().GetConsensus();
 
     // Update nTime
     UpdateTime(pblock, config, pindexPrev);
@@ -664,9 +621,9 @@ static UniValue getblocktemplate(const Config &config,
 
         UniValue entry(UniValue::VOBJ);
 
-        entry.push_back(Pair("data", EncodeHexTx(tx)));
-        entry.push_back(Pair("txid", txId.GetHex()));
-        entry.push_back(Pair("hash", tx.GetHash().GetHex()));
+        entry.pushKV("data", EncodeHexTx(tx));
+        entry.pushKV("txid", txId.GetHex());
+        entry.pushKV("hash", tx.GetHash().GetHex());
 
         UniValue deps(UniValue::VARR);
         for (const CTxIn &in : tx.vin) {
@@ -674,13 +631,13 @@ static UniValue getblocktemplate(const Config &config,
                 deps.push_back(setTxIndex[in.prevout.GetTxId()]);
             }
         }
-        entry.push_back(Pair("depends", deps));
+        entry.pushKV("depends", deps);
 
         int index_in_template = i - 1;
-        entry.push_back(Pair(
-            "fee", pblocktemplate->vTxFees[index_in_template].GetSatoshis()));
+        entry.push_back(
+            Pair("fee", pblocktemplate->vTxFees[index_in_template] / SATOSHI));
         int64_t nTxSigOps = pblocktemplate->vTxSigOpsCount[index_in_template];
-        entry.push_back(Pair("sigops", nTxSigOps));
+        entry.pushKV("sigops", nTxSigOps);
 
         transactions.push_back(entry);
     }
@@ -697,99 +654,30 @@ static UniValue getblocktemplate(const Config &config,
     aMutable.push_back("prevblock");
 
     UniValue result(UniValue::VOBJ);
-    result.push_back(Pair("capabilities", aCaps));
+    result.pushKV("capabilities", aCaps);
 
-    UniValue aRules(UniValue::VARR);
-    UniValue vbavailable(UniValue::VOBJ);
-    for (int j = 0; j < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; ++j) {
-        Consensus::DeploymentPos pos = Consensus::DeploymentPos(j);
-        ThresholdState state = VersionBitsState(pindexPrev, consensusParams,
-                                                pos, versionbitscache);
-        switch (state) {
-            case THRESHOLD_DEFINED:
-            case THRESHOLD_FAILED:
-                // Not exposed to GBT at all
-                break;
-            case THRESHOLD_LOCKED_IN: {
-                // Ensure bit is set in block version, then fallthrough to get
-                // vbavailable set.
-                pblock->nVersion |= VersionBitsMask(consensusParams, pos);
-            }
-            // FALLTHROUGH
-            case THRESHOLD_STARTED: {
-                const struct BIP9DeploymentInfo &vbinfo =
-                    VersionBitsDeploymentInfo[pos];
-                vbavailable.push_back(Pair(
-                    gbt_vb_name(pos), consensusParams.vDeployments[pos].bit));
-                if (setClientRules.find(vbinfo.name) == setClientRules.end()) {
-                    if (!vbinfo.gbt_force) {
-                        // If the client doesn't support this, don't indicate it
-                        // in the [default] version
-                        pblock->nVersion &=
-                            ~VersionBitsMask(consensusParams, pos);
-                    }
-                }
-                break;
-            }
-            case THRESHOLD_ACTIVE: {
-                // Add to rules only
-                const struct BIP9DeploymentInfo &vbinfo =
-                    VersionBitsDeploymentInfo[pos];
-                aRules.push_back(gbt_vb_name(pos));
-                if (setClientRules.find(vbinfo.name) == setClientRules.end()) {
-                    // Not supported by the client; make sure it's safe to
-                    // proceed
-                    if (!vbinfo.gbt_force) {
-                        // If we do anything other than throw an exception here,
-                        // be sure version/force isn't sent to old clients
-                        throw JSONRPCError(
-                            RPC_INVALID_PARAMETER,
-                            strprintf("Support for '%s' rule requires explicit "
-                                      "client support",
-                                      vbinfo.name));
-                    }
-                }
-                break;
-            }
-        }
-    }
-    result.push_back(Pair("version", pblock->nVersion));
-    result.push_back(Pair("rules", aRules));
-    result.push_back(Pair("vbavailable", vbavailable));
-    result.push_back(Pair("vbrequired", int(0)));
+    result.pushKV("version", pblock->nVersion);
 
-    if (nMaxVersionPreVB >= 2) {
-        // If VB is supported by the client, nMaxVersionPreVB is -1, so we won't
-        // get here. Because BIP 34 changed how the generation transaction is
-        // serialized, we can only use version/force back to v2 blocks. This is
-        // safe to do [otherwise-]unconditionally only because we are throwing
-        // an exception above if a non-force deployment gets activated. Note
-        // that this can probably also be removed entirely after the first BIP9
-        // non-force deployment (ie, probably segwit) gets activated.
-        aMutable.push_back("version/force");
-    }
-
-    result.push_back(Pair("previousblockhash", pblock->hashPrevBlock.GetHex()));
-    result.push_back(Pair("transactions", transactions));
-    result.push_back(Pair("coinbaseaux", aux));
-    result.push_back(
-        Pair("coinbasevalue",
-             (int64_t)pblock->vtx[0]->vout[0].nValue.GetSatoshis()));
+    result.pushKV("previousblockhash", pblock->hashPrevBlock.GetHex());
+    result.pushKV("transactions", transactions);
+    result.pushKV("coinbaseaux", aux);
+    result.push_back(Pair("coinbasevalue",
+                          int64_t(pblock->vtx[0]->vout[0].nValue / SATOSHI)));
     result.push_back(Pair("longpollid",
                           chainActive.Tip()->GetBlockHash().GetHex() +
                               i64tostr(nTransactionsUpdatedLast)));
-    result.push_back(Pair("target", hashTarget.GetHex()));
+    result.pushKV("target", hashTarget.GetHex());
     result.push_back(
-        Pair("mintime", (int64_t)pindexPrev->GetMedianTimePast() + 1));
-    result.push_back(Pair("mutable", aMutable));
-    result.push_back(Pair("noncerange", "00000000ffffffff"));
+        Pair("mintime", int64_t(pindexPrev->GetMedianTimePast()) + 1));
+    result.pushKV("mutable", aMutable);
+    result.pushKV("noncerange", "00000000ffffffff");
     // FIXME: Allow for mining block greater than 1M.
     result.push_back(
         Pair("sigoplimit", GetMaxBlockSigOpsCount(DEFAULT_MAX_BLOCK_SIZE)));
-    result.push_back(Pair("sizelimit", DEFAULT_MAX_BLOCK_SIZE));
-    result.push_back(Pair("curtime", pblock->GetBlockTime()));
-    result.push_back(Pair("bits", strprintf("%08x", pblock->nBits)));
-    result.push_back(Pair("height", (int64_t)(pindexPrev->nHeight + 1)));
+    result.pushKV("sizelimit", DEFAULT_MAX_BLOCK_SIZE);
+    result.pushKV("curtime", pblock->GetBlockTime());
+    result.pushKV("bits", strprintf("%08x", pblock->nBits));
+    result.pushKV("height", int64_t(pindexPrev->nHeight) + 1);
 
     return result;
 }
@@ -861,7 +749,7 @@ static UniValue submitblock(const Config &config,
             if (pindex->IsValid(BlockValidity::SCRIPTS)) {
                 return "duplicate";
             }
-            if (pindex->nStatus & BLOCK_FAILED_MASK) {
+            if (pindex->nStatus.isInvalid()) {
                 return "duplicate-invalid";
             }
             // Otherwise, we might only have the header - process the block
@@ -920,7 +808,7 @@ static UniValue estimatefee(const Config &config,
     }
 
     CFeeRate feeRate = mempool.estimateFee(nBlocks);
-    if (feeRate == CFeeRate(Amount(0))) {
+    if (feeRate == CFeeRate(Amount::zero())) {
         return -1.0;
     }
 
@@ -928,18 +816,18 @@ static UniValue estimatefee(const Config &config,
 }
 
 // clang-format off
-static const CRPCCommand commands[] = {
-    //  category   name                     actor (function)       okSafeMode
+static const ContextFreeRPCCommand commands[] = {
+    //  category   name                     actor (function)       argNames
     //  ---------- ------------------------ ---------------------- ----------
-    {"mining",     "getnetworkhashps",      getnetworkhashps,      true, {"nblocks", "height"}},
-    {"mining",     "getmininginfo",         getmininginfo,         true, {}},
-    {"mining",     "prioritisetransaction", prioritisetransaction, true, {"txid", "priority_delta", "fee_delta"}},
-    {"mining",     "getblocktemplate",      getblocktemplate,      true, {"template_request"}},
-    {"mining",     "submitblock",           submitblock,           true, {"hexdata", "parameters"}},
+    {"mining",     "getnetworkhashps",      getnetworkhashps,      {"nblocks", "height"}},
+    {"mining",     "getmininginfo",         getmininginfo,         {}},
+    {"mining",     "prioritisetransaction", prioritisetransaction, {"txid", "priority_delta", "fee_delta"}},
+    {"mining",     "getblocktemplate",      getblocktemplate,      {"template_request"}},
+    {"mining",     "submitblock",           submitblock,           {"hexdata", "parameters"}},
 
-    {"generating", "generatetoaddress",     generatetoaddress,     true, {"nblocks", "address", "maxtries"}},
+    {"generating", "generatetoaddress",     generatetoaddress,     {"nblocks", "address", "maxtries"}},
 
-    {"util",       "estimatefee",           estimatefee,           true, {"nblocks"}},
+    {"util",       "estimatefee",           estimatefee,           {"nblocks"}},
 };
 // clang-format on
 

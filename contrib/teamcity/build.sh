@@ -32,6 +32,9 @@ fi
 
 ../configure "${CONFIGURE_FLAGS[@]}"
 
+# Run build
+make -j ${THREADS}
+
 # Run unit tests
 make check
 
@@ -43,8 +46,8 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [[ ! -z "${DISABLE_WALLET}" ]]; then
 	echo "Skipping rpc testing due to disabled wallet functionality."
 elif [[ "${BRANCH}" == "master" ]]; then
-	./test/functional/test_runner.py --extended --jobs=${THREADS} --tmpdirprefix=output
+	./test/functional/test_runner.py --cutoff=600 --tmpdirprefix=output
 else
-	./test/functional/test_runner.py --jobs=${THREADS} --tmpdirprefix=output
+	./test/functional/test_runner.py --tmpdirprefix=output
 fi
 

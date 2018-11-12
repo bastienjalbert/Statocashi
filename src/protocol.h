@@ -69,7 +69,7 @@ public:
     }
 
     MessageMagic pchMessageStart;
-    char pchCommand[COMMAND_SIZE];
+    std::array<char, COMMAND_SIZE> pchCommand;
     uint32_t nMessageSize;
     uint8_t pchChecksum[CHECKSUM_SIZE];
 };
@@ -303,6 +303,51 @@ enum ServiceFlags : uint64_t {
     // do not actually support. Other service bits should be allocated via the
     // BIP process.
 };
+
+/**
+ * Gets the set of service flags which are "desirable" for a given peer.
+ *
+ * These are the flags which are required for a peer to support for them
+ * to be "interesting" to us, ie for us to wish to use one of our few
+ * outbound connection slots for or for us to wish to prioritize keeping
+ * their connection around.
+ *
+ * Relevant service flags may be peer- and state-specific in that the
+ * version of the peer may determine which flags are required (eg in the
+ * case of NODE_NETWORK_LIMITED where we seek out NODE_NETWORK peers
+ * unless they set NODE_NETWORK_LIMITED and we are out of IBD, in which
+ * case NODE_NETWORK_LIMITED suffices).
+ *
+ * Thus, generally, avoid calling with peerServices == NODE_NONE, unless
+ * state-specific flags must absolutely be avoided. When called with
+ * peerServices == NODE_NONE, the returned desirable service flags are
+ * guaranteed to not change dependant on state - ie they are suitable for
+ * use when describing peers which we know to be desirable, but for which
+ * we do not have a confirmed set of service flags.
+ *
+ * If the NODE_NONE return value is changed, contrib/seeds/makeseeds.py
+ * should be updated appropriately to filter for the same nodes.
+ */
+static ServiceFlags GetDesirableServiceFlags(ServiceFlags services) {
+    return ServiceFlags(NODE_NETWORK);
+}
+
+/**
+ * A shortcut for (services & GetDesirableServiceFlags(services))
+ * == GetDesirableServiceFlags(services), ie determines whether the given
+ * set of service flags are sufficient for a peer to be "relevant".
+ */
+static inline bool HasAllDesirableServiceFlags(ServiceFlags services) {
+    return !(GetDesirableServiceFlags(services) & (~services));
+}
+
+/**
+ * Checks if a peer with the given service flags may be capable of having a
+ * robust address-storage DB. Currently an alias for checking NODE_NETWORK.
+ */
+static inline bool MayHaveUsefulAddressDB(ServiceFlags services) {
+    return services & NODE_NETWORK;
+}
 
 /**
  * A CService with information about it as peer.

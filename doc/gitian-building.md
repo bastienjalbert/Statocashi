@@ -57,7 +57,7 @@ pushd
 cd /tmp/
 git clone https://github.com/boxcutter/ubuntu.git
 cd ubuntu
-git checkout 1e1f4804315b27eba398de93b8024230d190443a
+git checkout 7d1820c186d76122445c092bc2b872a8a94166ce
 packer build -var-file=ubuntu1604.json -only=virtualbox-iso ubuntu.json
 vagrant box add --name abc-xenial box/virtualbox/ubuntu1604-0.1.0.box
 popd
@@ -88,7 +88,7 @@ Execute the following as user `vagrant`:
 
 ```bash
 cd gitian-builder
-bin/make-base-vm --lxc --arch amd64 --suite xenial
+./bin/make-base-vm --lxc --distro debian --suite stretch --arch amd64
 ```
 
 There will be a lot of warnings printed during the build of the image. These
@@ -105,8 +105,17 @@ COMMIT=v0.16.0 # or whatever release tag you wish
 
 # Note the path to descriptors assumes vagrant was used.  These files are within the ABC repository normally.
 ./bin/gbuild --commit bitcoin=${COMMIT} --url bitcoin=${URL} /vagrant/contrib/gitian-descriptors/gitian-linux.yml
+# Note: If you plan on signing the binaries generated during this process, be
+# sure to copy them from ./build/out/ to /vagrant/gitian/<platform-name>
+# otherwise they will be overwritten by the next gbuild call.
 ./bin/gbuild --commit bitcoin=${COMMIT} --url bitcoin=${URL} /vagrant/contrib/gitian-descriptors/gitian-win.yml
 ./bin/gbuild --commit bitcoin=${COMMIT} --url bitcoin=${URL} /vagrant/contrib/gitian-descriptors/gitian-osx.yml
+```
+
+Note on the OSX build: If you encounter an error about a missing MacOSX10.11.sdk.tar.gz, then follow these steps:
+```
+cd ./inputs
+curl -LO https://storage.googleapis.com/f4936e83b2dcbca742be51fb9692b153/MacOSX10.11.sdk.tar.gz
 ```
 
 Note: For executing gitian builds on local changes, change URL and COMMIT:

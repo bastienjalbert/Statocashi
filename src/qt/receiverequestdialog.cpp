@@ -19,9 +19,6 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPixmap>
-#if QT_VERSION < 0x050000
-#include <QUrl>
-#endif
 
 #if defined(HAVE_CONFIG_H)
 #include "config/bitcoin-config.h" /* for USE_QRCODE */
@@ -79,10 +76,10 @@ void QRImageWidget::contextMenuEvent(QContextMenuEvent *event) {
     contextMenu->exec(event->globalPos());
 }
 
-ReceiveRequestDialog::ReceiveRequestDialog(const Config *config,
+ReceiveRequestDialog::ReceiveRequestDialog(const Config *configIn,
                                            QWidget *parent)
     : QDialog(parent), ui(new Ui::ReceiveRequestDialog), model(0),
-      config(config) {
+      config(configIn) {
     ui->setupUi(this);
 
 #ifndef USE_QRCODE
@@ -130,7 +127,7 @@ void ReceiveRequestDialog::update() {
     html += "<a href=\"" + uri + "\">" + GUIUtil::HtmlEscape(uri) + "</a><br>";
     html += "<b>" + tr("Address") +
             "</b>: " + GUIUtil::HtmlEscape(info.address) + "<br>";
-    if (info.amount != Amount(0))
+    if (info.amount != Amount::zero())
         html += "<b>" + tr("Amount") +
                 "</b>: " + BitcoinUnits::formatHtmlWithUnit(
                                model->getDisplayUnit(), info.amount) +

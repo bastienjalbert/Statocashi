@@ -100,12 +100,18 @@ BOOST_AUTO_TEST_CASE(util_DateTimeStrFormat) {
         "Fri, 30 Sep 2011 23:36:17 +0000");
 }
 
-class TestArgsManager : public ArgsManager {
-public:
-    std::map<std::string, std::string> &GetMapArgs() { return mapArgs; };
+struct TestArgsManager : public ArgsManager {
+    std::map<std::string, std::string> &GetMapArgs() { return mapArgs; }
     const std::map<std::string, std::vector<std::string>> &GetMapMultiArgs() {
         return mapMultiArgs;
-    };
+    }
+    const std::unordered_set<std::string> &GetNegatedArgs() {
+        return m_negated_args;
+    }
+    void ReadConfigString(const std::string str_config) {
+        std::istringstream stream(str_config);
+        ReadConfigStream(stream);
+    }
 };
 
 BOOST_AUTO_TEST_CASE(util_ParseParameters) {
@@ -141,6 +147,186 @@ BOOST_AUTO_TEST_CASE(util_ParseParameters) {
     BOOST_CHECK(testArgs.GetArgs("-ccc").size() == 2);
 }
 
+BOOST_AUTO_TEST_CASE(util_GetBoolArg) {
+    TestArgsManager testArgs;
+    const char *argv_test[] = {"ignored", "-a",       "-nob",   "-c=0",
+                               "-d=1",    "-e=false", "-f=true"};
+    testArgs.ParseParameters(7, (char **)argv_test);
+
+    // Each letter should be set.
+    for (char opt : "abcdef") {
+        BOOST_CHECK(testArgs.IsArgSet({'-', opt}) || !opt);
+    }
+
+    // Nothing else should be in the map
+    BOOST_CHECK(testArgs.GetMapArgs().size() == 6 &&
+                testArgs.GetMapMultiArgs().size() == 6);
+
+    // The -no prefix should get stripped on the way in.
+    BOOST_CHECK(!testArgs.IsArgSet("-nob"));
+
+    // The -b option is flagged as negated, and nothing else is
+    BOOST_CHECK(testArgs.IsArgNegated("-b"));
+    BOOST_CHECK(testArgs.GetNegatedArgs().size() == 1);
+    BOOST_CHECK(!testArgs.IsArgNegated("-a"));
+
+    // Check expected values.
+    BOOST_CHECK(testArgs.GetBoolArg("-a", false) == true);
+    BOOST_CHECK(testArgs.GetBoolArg("-b", true) == false);
+    BOOST_CHECK(testArgs.GetBoolArg("-c", true) == false);
+    BOOST_CHECK(testArgs.GetBoolArg("-d", false) == true);
+    BOOST_CHECK(testArgs.GetBoolArg("-e", true) == false);
+    BOOST_CHECK(testArgs.GetBoolArg("-f", true) == false);
+}
+
+BOOST_AUTO_TEST_CASE(util_GetBoolArgEdgeCases) {
+    // Test some awful edge cases that hopefully no user will ever exercise.
+    TestArgsManager testArgs;
+
+    // Params test
+    const char *argv_test[] = {"ignored", "-nofoo", "-foo", "-nobar=0"};
+    testArgs.ParseParameters(4, (char **)argv_test);
+
+    // This was passed twice, second one overrides the negative setting.
+    BOOST_CHECK(!testArgs.IsArgNegated("-foo"));
+    BOOST_CHECK(testArgs.GetArg("-foo", "xxx") == "");
+
+    // A double negative is a positive.
+    BOOST_CHECK(testArgs.IsArgNegated("-bar"));
+    BOOST_CHECK(testArgs.GetArg("-bar", "xxx") == "1");
+
+    // Config test
+    const char *conf_test = "nofoo=1\nfoo=1\nnobar=0\n";
+    testArgs.ParseParameters(1, (char **)argv_test);
+    testArgs.ReadConfigString(conf_test);
+
+    // This was passed twice, second one overrides the negative setting,
+    // but not the value.
+    BOOST_CHECK(!testArgs.IsArgNegated("-foo"));
+    BOOST_CHECK(testArgs.GetArg("-foo", "xxx") == "0");
+
+    // A double negative is a positive.
+    BOOST_CHECK(testArgs.IsArgNegated("-bar"));
+    BOOST_CHECK(testArgs.GetArg("-bar", "xxx") == "1");
+
+    // Combined test
+    const char *combo_test_args[] = {"ignored", "-nofoo", "-bar"};
+    const char *combo_test_conf = "foo=1\nnobar=1\n";
+    testArgs.ParseParameters(3, (char **)combo_test_args);
+    testArgs.ReadConfigString(combo_test_conf);
+
+    // Command line overrides, but doesn't erase old setting
+    BOOST_CHECK(!testArgs.IsArgNegated("-foo"));
+    BOOST_CHECK(testArgs.GetArg("-foo", "xxx") == "0");
+    BOOST_CHECK(testArgs.GetArgs("-foo").size() == 2 &&
+                testArgs.GetArgs("-foo").front() == "0" &&
+                testArgs.GetArgs("-foo").back() == "1");
+
+    // Command line overrides, but doesn't erase old setting
+    BOOST_CHECK(testArgs.IsArgNegated("-bar"));
+    BOOST_CHECK(testArgs.GetArg("-bar", "xxx") == "");
+    BOOST_CHECK(testArgs.GetArgs("-bar").size() == 2 &&
+                testArgs.GetArgs("-bar").front() == "" &&
+                testArgs.GetArgs("-bar").back() == "0");
+}
+
+BOOST_AUTO_TEST_CASE(util_ReadConfigStream) {
+    const char *str_config = "a=\n"
+                             "b=1\n"
+                             "ccc=argument\n"
+                             "ccc=multiple\n"
+                             "d=e\n"
+                             "nofff=1\n"
+                             "noggg=0\n"
+                             "h=1\n"
+                             "noh=1\n"
+                             "noi=1\n"
+                             "i=1\n";
+
+    TestArgsManager test_args;
+
+    test_args.ReadConfigString(str_config);
+    // expectation: a, b, ccc, d, fff, ggg, h, i end up in map
+
+    BOOST_CHECK(test_args.GetMapArgs().size() == 8);
+    BOOST_CHECK(test_args.GetMapMultiArgs().size() == 8);
+
+    BOOST_CHECK(test_args.GetMapArgs().count("-a") &&
+                test_args.GetMapArgs().count("-b") &&
+                test_args.GetMapArgs().count("-ccc") &&
+                test_args.GetMapArgs().count("-d") &&
+                test_args.GetMapArgs().count("-fff") &&
+                test_args.GetMapArgs().count("-ggg") &&
+                test_args.GetMapArgs().count("-h") &&
+                test_args.GetMapArgs().count("-i"));
+
+    BOOST_CHECK(test_args.IsArgSet("-a") && test_args.IsArgSet("-b") &&
+                test_args.IsArgSet("-ccc") && test_args.IsArgSet("-d") &&
+                test_args.IsArgSet("-fff") && test_args.IsArgSet("-ggg") &&
+                test_args.IsArgSet("-h") && test_args.IsArgSet("-i") &&
+                !test_args.IsArgSet("-zzz"));
+
+    BOOST_CHECK(test_args.GetArg("-a", "xxx") == "" &&
+                test_args.GetArg("-b", "xxx") == "1" &&
+                test_args.GetArg("-ccc", "xxx") == "argument" &&
+                test_args.GetArg("-d", "xxx") == "e" &&
+                test_args.GetArg("-fff", "xxx") == "0" &&
+                test_args.GetArg("-ggg", "xxx") == "1" &&
+                // 1st value takes precedence
+                test_args.GetArg("-h", "xxx") == "1" &&
+                // 1st value takes precedence
+                test_args.GetArg("-i", "xxx") == "0" &&
+                test_args.GetArg("-zzz", "xxx") == "xxx");
+
+    for (bool def : {false, true}) {
+        BOOST_CHECK(test_args.GetBoolArg("-a", def) &&
+                    test_args.GetBoolArg("-b", def) &&
+                    !test_args.GetBoolArg("-ccc", def) &&
+                    !test_args.GetBoolArg("-d", def) &&
+                    !test_args.GetBoolArg("-fff", def) &&
+                    test_args.GetBoolArg("-ggg", def) &&
+                    test_args.GetBoolArg("-h", def) &&
+                    !test_args.GetBoolArg("-i", def) &&
+                    test_args.GetBoolArg("-zzz", def) == def);
+    }
+
+    BOOST_CHECK(test_args.GetArgs("-a").size() == 1 &&
+                test_args.GetArgs("-a").front() == "");
+    BOOST_CHECK(test_args.GetArgs("-b").size() == 1 &&
+                test_args.GetArgs("-b").front() == "1");
+    BOOST_CHECK(test_args.GetArgs("-ccc").size() == 2 &&
+                test_args.GetArgs("-ccc").front() == "argument" &&
+                test_args.GetArgs("-ccc").back() == "multiple");
+    BOOST_CHECK(test_args.GetArgs("-fff").size() == 1 &&
+                test_args.GetArgs("-fff").front() == "0");
+    BOOST_CHECK(test_args.GetArgs("-nofff").size() == 0);
+    BOOST_CHECK(test_args.GetArgs("-ggg").size() == 1 &&
+                test_args.GetArgs("-ggg").front() == "1");
+    BOOST_CHECK(test_args.GetArgs("-noggg").size() == 0);
+    BOOST_CHECK(test_args.GetArgs("-h").size() == 2 &&
+                test_args.GetArgs("-h").front() == "1" &&
+                test_args.GetArgs("-h").back() == "0");
+    BOOST_CHECK(test_args.GetArgs("-noh").size() == 0);
+    BOOST_CHECK(test_args.GetArgs("-i").size() == 2 &&
+                test_args.GetArgs("-i").front() == "0" &&
+                test_args.GetArgs("-i").back() == "1");
+    BOOST_CHECK(test_args.GetArgs("-noi").size() == 0);
+    BOOST_CHECK(test_args.GetArgs("-zzz").size() == 0);
+
+    BOOST_CHECK(!test_args.IsArgNegated("-a"));
+    BOOST_CHECK(!test_args.IsArgNegated("-b"));
+    BOOST_CHECK(!test_args.IsArgNegated("-ccc"));
+    BOOST_CHECK(!test_args.IsArgNegated("-d"));
+    BOOST_CHECK(test_args.IsArgNegated("-fff"));
+    // IsArgNegated==true when noggg=0
+    BOOST_CHECK(test_args.IsArgNegated("-ggg"));
+    // last setting takes precedence
+    BOOST_CHECK(test_args.IsArgNegated("-h"));
+    // last setting takes precedence
+    BOOST_CHECK(!test_args.IsArgNegated("-i"));
+    BOOST_CHECK(!test_args.IsArgNegated("-zzz"));
+}
+
 BOOST_AUTO_TEST_CASE(util_GetArg) {
     TestArgsManager testArgs;
     testArgs.GetMapArgs().clear();
@@ -165,8 +351,55 @@ BOOST_AUTO_TEST_CASE(util_GetArg) {
     BOOST_CHECK_EQUAL(testArgs.GetBoolArg("booltest4", false), true);
 }
 
+BOOST_AUTO_TEST_CASE(util_GetChainName) {
+    TestArgsManager test_args;
+
+    const char *argv_testnet[] = {"cmd", "-testnet"};
+    const char *argv_regtest[] = {"cmd", "-regtest"};
+    const char *argv_test_no_reg[] = {"cmd", "-testnet", "-noregtest"};
+    const char *argv_both[] = {"cmd", "-testnet", "-regtest"};
+
+    // equivalent to "-testnet"
+    const char *testnetconf = "testnet=1\nregtest=0\n";
+
+    test_args.ParseParameters(0, (char **)argv_testnet);
+    BOOST_CHECK_EQUAL(test_args.GetChainName(), "main");
+
+    test_args.ParseParameters(2, (char **)argv_testnet);
+    BOOST_CHECK_EQUAL(test_args.GetChainName(), "test");
+
+    test_args.ParseParameters(2, (char **)argv_regtest);
+    BOOST_CHECK_EQUAL(test_args.GetChainName(), "regtest");
+
+    test_args.ParseParameters(3, (char **)argv_test_no_reg);
+    BOOST_CHECK_EQUAL(test_args.GetChainName(), "test");
+
+    test_args.ParseParameters(3, (char **)argv_both);
+    BOOST_CHECK_THROW(test_args.GetChainName(), std::runtime_error);
+
+    test_args.ParseParameters(0, (char **)argv_testnet);
+    test_args.ReadConfigString(testnetconf);
+    BOOST_CHECK_EQUAL(test_args.GetChainName(), "test");
+
+    test_args.ParseParameters(2, (char **)argv_testnet);
+    test_args.ReadConfigString(testnetconf);
+    BOOST_CHECK_EQUAL(test_args.GetChainName(), "test");
+
+    test_args.ParseParameters(2, (char **)argv_regtest);
+    test_args.ReadConfigString(testnetconf);
+    BOOST_CHECK_THROW(test_args.GetChainName(), std::runtime_error);
+
+    test_args.ParseParameters(3, (char **)argv_test_no_reg);
+    test_args.ReadConfigString(testnetconf);
+    BOOST_CHECK_EQUAL(test_args.GetChainName(), "test");
+
+    test_args.ParseParameters(3, (char **)argv_both);
+    test_args.ReadConfigString(testnetconf);
+    BOOST_CHECK_THROW(test_args.GetChainName(), std::runtime_error);
+}
+
 BOOST_AUTO_TEST_CASE(util_FormatMoney) {
-    BOOST_CHECK_EQUAL(FormatMoney(Amount(0)), "0.00");
+    BOOST_CHECK_EQUAL(FormatMoney(Amount::zero()), "0.00");
     BOOST_CHECK_EQUAL(FormatMoney(123456789 * (COIN / 10000)), "12345.6789");
     BOOST_CHECK_EQUAL(FormatMoney(-1 * COIN), "-1.00");
 
@@ -190,9 +423,9 @@ BOOST_AUTO_TEST_CASE(util_FormatMoney) {
 }
 
 BOOST_AUTO_TEST_CASE(util_ParseMoney) {
-    Amount ret(0);
+    Amount ret = Amount::zero();
     BOOST_CHECK(ParseMoney("0.0", ret));
-    BOOST_CHECK_EQUAL(ret, Amount(0));
+    BOOST_CHECK_EQUAL(ret, Amount::zero());
 
     BOOST_CHECK(ParseMoney("12345.6789", ret));
     BOOST_CHECK_EQUAL(ret, 123456789 * (COIN / 10000));
@@ -578,10 +811,10 @@ BOOST_AUTO_TEST_CASE(test_FormatSubVersion) {
     comments.push_back(std::string("comment1"));
     std::vector<std::string> comments2;
     comments2.push_back(std::string("comment1"));
+    // Semicolon is discouraged but not forbidden by BIP-0014
     comments2.push_back(SanitizeString(
         std::string("Comment2; .,_?@-; !\"#$%&'()*+/<=>[]\\^`{|}~"),
-        SAFE_CHARS_UA_COMMENT)); // Semicolon is discouraged but not forbidden
-                                 // by BIP-0014
+        SAFE_CHARS_UA_COMMENT));
     BOOST_CHECK_EQUAL(
         FormatSubVersion("Test", 99900, std::vector<std::string>()),
         std::string("/Test:0.9.99/"));

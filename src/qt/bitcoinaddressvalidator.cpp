@@ -6,6 +6,7 @@
 #include "bitcoinaddressvalidator.h"
 
 #include "cashaddr.h"
+#include "config.h"
 #include "dstencode.h"
 
 /* Base58 characters are:
@@ -17,8 +18,8 @@
   - All lower-case letters except for 'l'
 */
 BitcoinAddressEntryValidator::BitcoinAddressEntryValidator(
-    const std::string &cashaddrprefix, QObject *parent)
-    : QValidator(parent), cashaddrprefix(cashaddrprefix) {}
+    const std::string &cashaddrprefixIn, QObject *parent)
+    : QValidator(parent), cashaddrprefix(cashaddrprefixIn) {}
 
 QValidator::State BitcoinAddressEntryValidator::validate(QString &input,
                                                          int &pos) const {
@@ -84,7 +85,8 @@ QValidator::State BitcoinAddressCheckValidator::validate(QString &input,
     Q_UNUSED(pos);
 
     // Validate the passed Bitcoin address
-    if (IsValidDestinationString(input.toStdString())) {
+    if (IsValidDestinationString(input.toStdString(),
+                                 GetConfig().GetChainParams())) {
         return QValidator::Acceptable;
     }
 

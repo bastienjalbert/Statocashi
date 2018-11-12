@@ -210,6 +210,10 @@ public:
     uint256 GetBestBlock() const override;
     void SetBestBlock(const uint256 &hashBlock);
     bool BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) override;
+    CCoinsViewCursor *Cursor() const override {
+        throw std::logic_error(
+            "CCoinsViewCache cursor iteration not supported.");
+    }
 
     /**
      * Check if we have the given utxo already loaded in this cache.
@@ -304,6 +308,9 @@ void AddCoins(CCoinsViewCache &cache, const CTransaction &tx, int nHeight,
               bool check = false);
 
 //! Utility function to find any unspent output with a given txid.
+// This function can be quite expensive because in the event of a transaction
+// which is not found in the cache, it can cause up to MAX_OUTPUTS_PER_BLOCK
+// lookups to database, so it should be used with care.
 const Coin &AccessByTxid(const CCoinsViewCache &cache, const TxId &txid);
 
 #endif // BITCOIN_COINS_H

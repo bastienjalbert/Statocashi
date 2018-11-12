@@ -7,7 +7,10 @@
 #define BITCOIN_CHAIN_H
 
 #include "arith_uint256.h"
+#include "blockstatus.h"
+#include "blockvalidity.h"
 #include "consensus/params.h"
+#include "diskblockpos.h"
 #include "pow.h"
 #include "primitives/block.h"
 #include "tinyformat.h"
@@ -29,245 +32,6 @@ static const int64_t MAX_FUTURE_BLOCK_TIME = 2 * 60 * 60;
  * MAX_FUTURE_BLOCK_TIME.
  */
 static const int64_t TIMESTAMP_WINDOW = MAX_FUTURE_BLOCK_TIME;
-
-class CBlockFileInfo {
-public:
-    //!< number of blocks stored in file
-    unsigned int nBlocks;
-    //!< number of used bytes of block file
-    unsigned int nSize;
-    //!< number of used bytes in the undo file
-    unsigned int nUndoSize;
-    //!< lowest height of block in file
-    unsigned int nHeightFirst;
-    //!< highest height of block in file
-    unsigned int nHeightLast;
-    //!< earliest time of block in file
-    uint64_t nTimeFirst;
-    //!< latest time of block in file
-    uint64_t nTimeLast;
-
-    ADD_SERIALIZE_METHODS;
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream &s, Operation ser_action) {
-        READWRITE(VARINT(nBlocks));
-        READWRITE(VARINT(nSize));
-        READWRITE(VARINT(nUndoSize));
-        READWRITE(VARINT(nHeightFirst));
-        READWRITE(VARINT(nHeightLast));
-        READWRITE(VARINT(nTimeFirst));
-        READWRITE(VARINT(nTimeLast));
-    }
-
-    void SetNull() {
-        nBlocks = 0;
-        nSize = 0;
-        nUndoSize = 0;
-        nHeightFirst = 0;
-        nHeightLast = 0;
-        nTimeFirst = 0;
-        nTimeLast = 0;
-    }
-
-    CBlockFileInfo() { SetNull(); }
-
-    std::string ToString() const;
-
-    /** update statistics (does not update nSize) */
-    void AddBlock(unsigned int nHeightIn, uint64_t nTimeIn) {
-        if (nBlocks == 0 || nHeightFirst > nHeightIn) {
-            nHeightFirst = nHeightIn;
-        }
-        if (nBlocks == 0 || nTimeFirst > nTimeIn) {
-            nTimeFirst = nTimeIn;
-        }
-        nBlocks++;
-        if (nHeightIn > nHeightLast) {
-            nHeightLast = nHeightIn;
-        }
-        if (nTimeIn > nTimeLast) {
-            nTimeLast = nTimeIn;
-        }
-    }
-};
-
-struct CDiskBlockPos {
-    int nFile;
-    unsigned int nPos;
-
-    ADD_SERIALIZE_METHODS;
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream &s, Operation ser_action) {
-        READWRITE(VARINT(nFile));
-        READWRITE(VARINT(nPos));
-    }
-
-    CDiskBlockPos() { SetNull(); }
-
-    CDiskBlockPos(int nFileIn, unsigned int nPosIn) {
-        nFile = nFileIn;
-        nPos = nPosIn;
-    }
-
-    friend bool operator==(const CDiskBlockPos &a, const CDiskBlockPos &b) {
-        return (a.nFile == b.nFile && a.nPos == b.nPos);
-    }
-
-    friend bool operator!=(const CDiskBlockPos &a, const CDiskBlockPos &b) {
-        return !(a == b);
-    }
-
-    void SetNull() {
-        nFile = -1;
-        nPos = 0;
-    }
-    bool IsNull() const { return (nFile == -1); }
-
-    std::string ToString() const {
-        return strprintf("CBlockDiskPos(nFile=%i, nPos=%i)", nFile, nPos);
-    }
-};
-
-enum class BlockValidity : uint32_t {
-    /**
-     * Unused.
-     */
-    UNKNOWN = 0,
-
-    /**
-     * Parsed, version ok, hash satisfies claimed PoW, 1 <= vtx count <= max,
-     * timestamp not in future.
-     */
-    HEADER = 1,
-
-    /**
-     * All parent headers found, difficulty matches, timestamp >= median
-     * previous, checkpoint. Implies all parents are also at least TREE.
-     */
-    TREE = 2,
-
-    /**
-     * Only first tx is coinbase, 2 <= coinbase input script length <= 100,
-     * transactions valid, no duplicate txids, sigops, size, merkle root.
-     * Implies all parents are at least TREE but not necessarily TRANSACTIONS.
-     * When all parent blocks also have TRANSACTIONS, CBlockIndex::nChainTx will
-     * be set.
-     */
-    TRANSACTIONS = 3,
-
-    /**
-     * Outputs do not overspend inputs, no double spends, coinbase output ok, no
-     * immature coinbase spends, BIP30.
-     * Implies all parents are also at least CHAIN.
-     */
-    CHAIN = 4,
-
-    /**
-     * Scripts & signatures ok. Implies all parents are also at least SCRIPTS.
-     */
-    SCRIPTS = 5,
-};
-
-enum BlockStatusEnum : uint32_t {
-    /**
-     * Validity levels.
-     */
-    BLOCK_VALID_UNKNOWN = uint32_t(BlockValidity::UNKNOWN),
-    BLOCK_VALID_HEADER = uint32_t(BlockValidity::HEADER),
-    BLOCK_VALID_TREE = uint32_t(BlockValidity::TREE),
-    BLOCK_VALID_TRANSACTIONS = uint32_t(BlockValidity::TRANSACTIONS),
-    BLOCK_VALID_CHAIN = uint32_t(BlockValidity::CHAIN),
-    BLOCK_VALID_SCRIPTS = uint32_t(BlockValidity::SCRIPTS),
-
-    /**
-     * All validity bits.
-     */
-    BLOCK_VALID_MASK = BLOCK_VALID_HEADER | BLOCK_VALID_TREE |
-                       BLOCK_VALID_TRANSACTIONS | BLOCK_VALID_CHAIN |
-                       BLOCK_VALID_SCRIPTS,
-
-    // Just a helper
-    BLOCK_HAVE_NOTHING = 0,
-
-    // Full block available in blk*.dat
-    BLOCK_HAVE_DATA = 8,
-    // Undo data available in rev*.dat
-    BLOCK_HAVE_UNDO = 16,
-    BLOCK_HAVE_MASK = BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO,
-
-    // The block is invalid.
-    BLOCK_FAILED_VALID = 32,
-    // The block has an invalid parent.
-    BLOCK_FAILED_CHILD = 64,
-    BLOCK_FAILED_MASK = BLOCK_FAILED_VALID | BLOCK_FAILED_CHILD,
-};
-
-struct BlockStatus {
-private:
-    uint32_t status;
-
-    explicit BlockStatus(uint32_t nStatusIn) : status(nStatusIn) {}
-
-public:
-    explicit BlockStatus() : status(BLOCK_VALID_UNKNOWN) {}
-
-    BlockValidity getValidity() const {
-        return BlockValidity(status & BLOCK_VALID_MASK);
-    }
-
-    BlockStatus withValidity(BlockValidity validity) const {
-        return BlockStatus((status & ~BLOCK_VALID_MASK) | uint32_t(validity));
-    }
-
-    bool hasData() const { return status & BLOCK_HAVE_DATA; }
-    BlockStatus withData(bool hasData = true) const {
-        return BlockStatus((status & ~BLOCK_HAVE_DATA) |
-                           (hasData ? BLOCK_HAVE_DATA : BLOCK_HAVE_NOTHING));
-    }
-
-    bool hasUndo() const { return status & BLOCK_HAVE_UNDO; }
-    BlockStatus withUndo(bool hasUndo = true) const {
-        return BlockStatus((status & ~BLOCK_HAVE_UNDO) |
-                           (hasUndo ? BLOCK_HAVE_UNDO : BLOCK_HAVE_NOTHING));
-    }
-
-    /**
-     * Check whether this block index entry is valid up to the passed validity
-     * level.
-     */
-    bool isValid(enum BlockValidity nUpTo = BlockValidity::TRANSACTIONS) const {
-        if (status & BLOCK_FAILED_MASK) {
-            return false;
-        }
-
-        return getValidity() >= nUpTo;
-    }
-
-    // To transition from this and the plain old intereger.
-    // TODO: delete.
-    uint32_t operator&(uint32_t rhs) const { return status & rhs; }
-
-    BlockStatus &operator&=(uint32_t rhs) {
-        this->status &= rhs;
-        return *this;
-    }
-    BlockStatus &operator|=(uint32_t rhs) {
-        this->status |= rhs;
-        return *this;
-    }
-
-    operator bool() const { return status != 0; }
-    operator uint32_t() const { return status; }
-
-    ADD_SERIALIZE_METHODS;
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream &s, Operation ser_action) {
-        READWRITE(VARINT(status));
-    }
-};
 
 /**
  * The block chain is a tree shaped structure starting with the genesis block at
@@ -412,7 +176,11 @@ public:
 
     int64_t GetBlockTimeMax() const { return int64_t(nTimeMax); }
 
-    int64_t GetHeaderTimeReceived() const { return nTimeReceived; }
+    int64_t GetHeaderReceivedTime() const { return nTimeReceived; }
+
+    int64_t GetReceivedTimeDiff() const {
+        return GetHeaderReceivedTime() - GetBlockTime();
+    }
 
     enum { nMedianTimeSpan = 11 };
 
@@ -447,11 +215,11 @@ public:
     //! Returns true if the validity was changed.
     bool RaiseValidity(enum BlockValidity nUpTo) {
         // Only validity flags allowed.
-        if (nStatus & BLOCK_FAILED_MASK) {
+        if (nStatus.isInvalid()) {
             return false;
         }
 
-        if (BlockValidity(nStatus & BLOCK_VALID_MASK) >= nUpTo) {
+        if (nStatus.getValidity() >= nUpTo) {
             return false;
         }
 
@@ -509,9 +277,9 @@ public:
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream &s, Operation ser_action) {
-        int nVersion = s.GetVersion();
+        int _nVersion = s.GetVersion();
         if (!(s.GetType() & SER_GETHASH)) {
-            READWRITE(VARINT(nVersion));
+            READWRITE(VARINT(_nVersion));
         }
 
         READWRITE(VARINT(nHeight));

@@ -40,6 +40,8 @@ Version
 
 29 May 2018 : Upgrade to Bitcoin ABC V0.17 (New hard-fork)
 
+12 November 2018 : Upgrade to Bitcoin ABC v0.18.2/3 (Nov 2018 hard-fork)
+
 Preview 
 -------
 [https://statocashi.info/]
@@ -206,3 +208,4 @@ Valuable links :
 
 http://docs.grafana.org/installation/configuration Some information about grafana configuration
 If you would like to contribute, please read [CONTRIBUTING](CONTRIBUTING.md)
+

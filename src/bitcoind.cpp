@@ -21,7 +21,6 @@
 #include "util.h"
 #include "utilstrencodings.h"
 
-#include <boost/algorithm/string/predicate.hpp>
 #include <boost/thread.hpp>
 
 #include <cstdio>
@@ -48,11 +47,8 @@
  */
 
 void WaitForShutdown(boost::thread_group *threadGroup) {
-    bool fShutdown = ShutdownRequested();
-    // Tell the main threads to shutdown.
-    while (!fShutdown) {
+    while (!ShutdownRequested()) {
         MilliSleep(200);
-        fShutdown = ShutdownRequested();
     }
     if (threadGroup) {
         Interrupt(*threadGroup);
@@ -72,6 +68,8 @@ bool AppInit(int argc, char *argv[]) {
     // not possible as the whole application has too many global state. However,
     // this is a first step.
     auto &config = const_cast<Config &>(GetConfig());
+    RPCServer rpcServer;
+    HTTPRPCRequestProcessor httpRPCRequestProcessor(config, rpcServer);
 
     bool fRet = false;
 
@@ -119,25 +117,24 @@ bool AppInit(int argc, char *argv[]) {
         // Check for -testnet or -regtest parameter (Params() calls are only
         // valid after this clause)
         try {
-            SelectParams(ChainNameFromCommandLine());
+            SelectParams(gArgs.GetChainName());
         } catch (const std::exception &e) {
             fprintf(stderr, "Error: %s\n", e.what());
             return false;
         }
 
-        // Command-line RPC
-        bool fCommandLine = false;
-        for (int i = 1; i < argc; i++)
-            if (!IsSwitchChar(argv[i][0]) &&
-                !boost::algorithm::istarts_with(argv[i], "bitcoin:"))
-                fCommandLine = true;
-
-        if (fCommandLine) {
-            fprintf(stderr, "Error: There is no RPC client functionality in "
-                            "bitcoind anymore. Use the bitcoin-cli utility "
-                            "instead.\n");
-            exit(EXIT_FAILURE);
+        // Error out when loose non-argument tokens are encountered on command
+        // line
+        for (int i = 1; i < argc; i++) {
+            if (!IsSwitchChar(argv[i][0])) {
+                fprintf(stderr, "Error: Command line contains unexpected token "
+                                "'%s', see bitcoind -h for a list of "
+                                "options.\n",
+                        argv[i]);
+                exit(EXIT_FAILURE);
+            }
         }
+
         // -server defaults to true for bitcoind but not for the GUI so do this
         // here
         gArgs.SoftSetBoolArg("-server", true);
@@ -149,7 +146,7 @@ bool AppInit(int argc, char *argv[]) {
             // up on console
             exit(1);
         }
-        if (!AppInitParameterInteraction(config)) {
+        if (!AppInitParameterInteraction(config, rpcServer)) {
             // InitError will have been called with detailed error, which ends
             // up on console
             exit(1);
@@ -178,7 +175,13 @@ bool AppInit(int argc, char *argv[]) {
 #endif // HAVE_DECL_DAEMON
         }
 
-        fRet = AppInitMain(config, threadGroup, scheduler);
+        // Lock data directory after daemonization
+        if (!AppInitLockDataDirectory()) {
+            // If locking the data directory failed, exit immediately
+            exit(EXIT_FAILURE);
+        }
+        fRet = AppInitMain(config, httpRPCRequestProcessor, threadGroup,
+                           scheduler);
     } catch (const std::exception &e) {
         PrintExceptionContinue(&e, "AppInit()");
     } catch (...) {

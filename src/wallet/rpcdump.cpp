@@ -9,6 +9,7 @@
 #include "dstencode.h"
 #include "init.h"
 #include "merkleblock.h"
+#include "rpc/safemode.h"
 #include "rpc/server.h"
 #include "rpcwallet.h"
 #include "script/script.h"
@@ -80,9 +81,9 @@ UniValue importprivkey(const Config &config, const JSONRPCRequest &request) {
 
     if (request.fHelp || request.params.size() < 1 || request.params.size() > 3)
         throw std::runtime_error(
-            "importprivkey \"bitcoinprivkey\" ( \"label\" ) ( rescan )\n"
-            "\nAdds a private key (as returned by dumpprivkey) to your "
-            "wallet.\n"
+            "importprivkey \"privkey\" ( \"label\" ) ( rescan )\n"
+            "\nAdds a private key (as returned by dumpprivkey) to your wallet. "
+            "Requires a new wallet backup.\n"
             "\nArguments:\n"
             "1. \"bitcoinprivkey\"   (string, required) The private key (see "
             "dumpprivkey)\n"
@@ -161,11 +162,38 @@ UniValue importprivkey(const Config &config, const JSONRPCRequest &request) {
         pwallet->UpdateTimeFirstKey(1);
 
         if (fRescan) {
-            pwallet->ScanForWalletTransactions(chainActive.Genesis(), true);
+            pwallet->RescanFromTime(TIMESTAMP_MIN, true /* update */);
         }
     }
 
     return NullUniValue;
+}
+
+UniValue abortrescan(const Config &config, const JSONRPCRequest &request) {
+    CWallet *const pwallet = GetWalletForJSONRPCRequest(request);
+    if (!EnsureWalletIsAvailable(pwallet, request.fHelp)) {
+        return NullUniValue;
+    }
+
+    if (request.fHelp || request.params.size() > 0) {
+        throw std::runtime_error("abortrescan\n"
+                                 "\nStops current wallet rescan triggered e.g. "
+                                 "by an importprivkey call.\n"
+                                 "\nExamples:\n"
+                                 "\nImport a private key\n" +
+                                 HelpExampleCli("importprivkey", "\"mykey\"") +
+                                 "\nAbort the running wallet rescan\n" +
+                                 HelpExampleCli("abortrescan", "") +
+                                 "\nAs a JSON-RPC call\n" +
+                                 HelpExampleRpc("abortrescan", ""));
+    }
+
+    ObserveSafeMode();
+    if (!pwallet->IsScanning() || pwallet->IsAbortingRescan()) {
+        return false;
+    }
+    pwallet->AbortRescan();
+    return true;
 }
 
 void ImportAddress(CWallet *, const CTxDestination &dest,
@@ -220,7 +248,8 @@ UniValue importaddress(const Config &config, const JSONRPCRequest &request) {
         throw std::runtime_error(
             "importaddress \"address\" ( \"label\" rescan p2sh )\n"
             "\nAdds a script (in hex) or address that can be watched as if it "
-            "were in your wallet but cannot be used to spend.\n"
+            "were in your wallet but cannot be used to spend. Requires a new "
+            "wallet backup.\n"
             "\nArguments:\n"
             "1. \"script\"           (string, required) The hex-encoded script "
             "(or address)\n"
@@ -290,7 +319,7 @@ UniValue importaddress(const Config &config, const JSONRPCRequest &request) {
     }
 
     if (fRescan) {
-        pwallet->ScanForWalletTransactions(chainActive.Genesis(), true);
+        pwallet->RescanFromTime(TIMESTAMP_MIN, true /* update */);
         pwallet->ReacceptWalletTransactions();
     }
 
@@ -405,18 +434,18 @@ UniValue removeprunedfunds(const Config &config,
 
     LOCK2(cs_main, pwallet->cs_wallet);
 
-    uint256 hash;
-    hash.SetHex(request.params[0].get_str());
-    std::vector<uint256> vHash;
-    vHash.push_back(hash);
-    std::vector<uint256> vHashOut;
+    TxId txid;
+    txid.SetHex(request.params[0].get_str());
+    std::vector<TxId> txIds;
+    txIds.push_back(txid);
+    std::vector<TxId> txIdsOut;
 
-    if (pwallet->ZapSelectTx(vHash, vHashOut) != DB_LOAD_OK) {
+    if (pwallet->ZapSelectTx(txIds, txIdsOut) != DB_LOAD_OK) {
         throw JSONRPCError(RPC_WALLET_ERROR,
                            "Could not properly delete the transaction.");
     }
 
-    if (vHashOut.empty()) {
+    if (txIdsOut.empty()) {
         throw JSONRPCError(RPC_INVALID_PARAMETER,
                            "Transaction does not exist in wallet.");
     }
@@ -435,7 +464,8 @@ UniValue importpubkey(const Config &config, const JSONRPCRequest &request) {
         throw std::runtime_error(
             "importpubkey \"pubkey\" ( \"label\" rescan )\n"
             "\nAdds a public key (in hex) that can be watched as if it were in "
-            "your wallet but cannot be used to spend.\n"
+            "your wallet but cannot be used to spend. Requires a new wallet "
+            "backup.\n"
             "\nArguments:\n"
             "1. \"pubkey\"           (string, required) The hex-encoded public "
             "key\n"
@@ -488,7 +518,7 @@ UniValue importpubkey(const Config &config, const JSONRPCRequest &request) {
     ImportScript(pwallet, GetScriptForRawPubKey(pubKey), strLabel, false);
 
     if (fRescan) {
-        pwallet->ScanForWalletTransactions(chainActive.Genesis(), true);
+        pwallet->RescanFromTime(TIMESTAMP_MIN, true /* update */);
         pwallet->ReacceptWalletTransactions();
     }
 
@@ -504,7 +534,8 @@ UniValue importwallet(const Config &config, const JSONRPCRequest &request) {
     if (request.fHelp || request.params.size() != 1) {
         throw std::runtime_error(
             "importwallet \"filename\"\n"
-            "\nImports keys from a wallet dump file (see dumpwallet).\n"
+            "\nImports keys from a wallet dump file (see dumpwallet). Requires "
+            "a new wallet backup to include imported keys.\n"
             "\nArguments:\n"
             "1. \"filename\"    (string, required) The wallet file\n"
             "\nExamples:\n"
@@ -605,12 +636,7 @@ UniValue importwallet(const Config &config, const JSONRPCRequest &request) {
     pwallet->ShowProgress("", 100);
     pwallet->UpdateTimeFirstKey(nTimeBegin);
 
-    CBlockIndex *pindex =
-        chainActive.FindEarliestAtLeast(nTimeBegin - TIMESTAMP_WINDOW);
-
-    LogPrintf("Rescanning last %i blocks\n",
-              chainActive.Height() - pindex->nHeight + 1);
-    pwallet->ScanForWalletTransactions(pindex);
+    pwallet->RescanFromTime(nTimeBegin, false /* update */);
     pwallet->MarkDirty();
 
     if (!fGood) {
@@ -679,6 +705,12 @@ UniValue dumpwallet(const Config &config, const JSONRPCRequest &request) {
             "\nDumps all wallet keys in a human-readable format to a "
             "server-side file. This does not allow overwriting existing "
             "files.\n"
+            "Imported scripts are not currently included in wallet dumps, "
+            "these must be backed up separately.\n"
+            "Note that if your wallet contains keys which are not derived from "
+            "your HD seed (e.g. imported keys), these are not covered by\n"
+            "only backing up the seed itself, and must be backed up too (e.g. "
+            "ensure you back up the whole dumpfile).\n"
             "\nArguments:\n"
             "1. \"filename\"    (string, required) The filename with path "
             "(either absolute or relative to bitcoind)\n"
@@ -793,7 +825,7 @@ UniValue dumpwallet(const Config &config, const JSONRPCRequest &request) {
     file.close();
 
     UniValue reply(UniValue::VOBJ);
-    reply.push_back(Pair("filename", filepath.string()));
+    reply.pushKV("filename", filepath.string());
 
     return reply;
 }
@@ -1193,8 +1225,8 @@ UniValue importmulti(const Config &config, const JSONRPCRequest &mainRequest) {
     // clang-format off
     if (mainRequest.fHelp || mainRequest.params.size() < 1 || mainRequest.params.size() > 2) {
         throw std::runtime_error(
-            "importmulti \"requests\" \"options\"\n\n"
-            "Import addresses/scripts (with private or public keys, redeem script (P2SH)), rescanning all addresses in one-shot-only (rescan can be disabled via options).\n\n"
+            "importmulti \"requests\" ( \"options\" )\n\n"
+            "Import addresses/scripts (with private or public keys, redeem script (P2SH)), rescanning all addresses in one-shot-only (rescan can be disabled via options). Requires a new wallet backup.\n\n"
             "Arguments:\n"
             "1. requests     (array, required) Data to be imported\n"
             "  [     (array of json objects)\n"
@@ -1289,18 +1321,11 @@ UniValue importmulti(const Config &config, const JSONRPCRequest &mainRequest) {
     }
 
     if (fRescan && fRunScan && requests.size()) {
-        CBlockIndex *pindex =
-            nLowestTimestamp > minimumTimestamp
-                ? chainActive.FindEarliestAtLeast(
-                      std::max<int64_t>(nLowestTimestamp - TIMESTAMP_WINDOW, 0))
-                : chainActive.Genesis();
-        CBlockIndex *scannedRange = nullptr;
-        if (pindex) {
-            scannedRange = pwallet->ScanForWalletTransactions(pindex, true);
-            pwallet->ReacceptWalletTransactions();
-        }
+        int64_t scannedTime =
+            pwallet->RescanFromTime(nLowestTimestamp, true /* update */);
+        pwallet->ReacceptWalletTransactions();
 
-        if (!scannedRange || scannedRange->nHeight > pindex->nHeight) {
+        if (scannedTime > nLowestTimestamp) {
             std::vector<UniValue> results = response.getValues();
             response.clear();
             response.setArray();
@@ -1310,8 +1335,7 @@ UniValue importmulti(const Config &config, const JSONRPCRequest &mainRequest) {
                 // range, or if the import result already has an error set, let
                 // the result stand unmodified. Otherwise replace the result
                 // with an error message.
-                if (GetImportTimestamp(request, now) - TIMESTAMP_WINDOW >=
-                        scannedRange->GetBlockTimeMax() ||
+                if (scannedTime <= GetImportTimestamp(request, now) ||
                     results.at(i).exists("error")) {
                     response.push_back(results.at(i));
                 } else {
@@ -1321,9 +1345,22 @@ UniValue importmulti(const Config &config, const JSONRPCRequest &mainRequest) {
                         "error",
                         JSONRPCError(
                             RPC_MISC_ERROR,
-                            strprintf("Failed to rescan before time %d, "
-                                      "transactions may be missing.",
-                                      scannedRange->GetBlockTimeMax())));
+                            strprintf(
+                                "Rescan failed for key with creation timestamp "
+                                "%d. There was an error reading a block from "
+                                "time %d, which is after or within %d seconds "
+                                "of key creation, and could contain "
+                                "transactions pertaining to the key. As a "
+                                "result, transactions and coins using this key "
+                                "may not appear in the wallet. This error "
+                                "could be caused by pruning or data corruption "
+                                "(see bitcoind log for details) and could be "
+                                "dealt with by downloading and rescanning the "
+                                "relevant blocks (see -reindex and -rescan "
+                                "options).",
+                                GetImportTimestamp(request, now),
+                                scannedTime - TIMESTAMP_WINDOW - 1,
+                                TIMESTAMP_WINDOW)));
                     response.push_back(std::move(result));
                 }
                 ++i;
@@ -1335,18 +1372,19 @@ UniValue importmulti(const Config &config, const JSONRPCRequest &mainRequest) {
 }
 
 // clang-format off
-static const CRPCCommand commands[] = {
-    //  category            name                        actor (function)          okSafeMode
+static const ContextFreeRPCCommand commands[] = {
+    //  category            name                        actor (function)          argNames
     //  ------------------- ------------------------    ----------------------    ----------
-    { "wallet",             "dumpprivkey",              dumpprivkey,              true,   {"address"}  },
-    { "wallet",             "dumpwallet",               dumpwallet,               true,   {"filename"} },
-    { "wallet",             "importmulti",              importmulti,              true,   {"requests","options"} },
-    { "wallet",             "importprivkey",            importprivkey,            true,   {"privkey","label","rescan"} },
-    { "wallet",             "importwallet",             importwallet,             true,   {"filename"} },
-    { "wallet",             "importaddress",            importaddress,            true,   {"address","label","rescan","p2sh"} },
-    { "wallet",             "importprunedfunds",        importprunedfunds,        true,   {"rawtransaction","txoutproof"} },
-    { "wallet",             "importpubkey",             importpubkey,             true,   {"pubkey","label","rescan"} },
-    { "wallet",             "removeprunedfunds",        removeprunedfunds,        true,   {"txid"} },
+    { "wallet",             "abortrescan",              abortrescan,              {} },
+    { "wallet",             "dumpprivkey",              dumpprivkey,              {"address"}  },
+    { "wallet",             "dumpwallet",               dumpwallet,               {"filename"} },
+    { "wallet",             "importmulti",              importmulti,              {"requests","options"} },
+    { "wallet",             "importprivkey",            importprivkey,            {"privkey","label","rescan"} },
+    { "wallet",             "importwallet",             importwallet,             {"filename"} },
+    { "wallet",             "importaddress",            importaddress,            {"address","label","rescan","p2sh"} },
+    { "wallet",             "importprunedfunds",        importprunedfunds,        {"rawtransaction","txoutproof"} },
+    { "wallet",             "importpubkey",             importpubkey,             {"pubkey","label","rescan"} },
+    { "wallet",             "removeprunedfunds",        removeprunedfunds,        {"txid"} },
 };
 // clang-format on
 

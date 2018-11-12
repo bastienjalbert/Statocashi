@@ -402,6 +402,12 @@ class CTransaction():
         self.sha256 = None
         self.hash = None
 
+    def billable_size(self):
+        """
+        Returns the size used for billing the against the transaction
+        """
+        return len(self.serialize())
+
     def serialize(self):
         r = b""
         r += struct.pack("<i", self.nVersion)
@@ -421,6 +427,11 @@ class CTransaction():
             self.sha256 = uint256_from_str(hash256(self.serialize()))
         self.hash = encode(
             hash256(self.serialize())[::-1], 'hex_codec').decode('ascii')
+
+    def get_id(self):
+        # For now, just forward the hash.
+        self.calc_sha256()
+        return self.hash
 
     def is_valid(self):
         self.calc_sha256()
@@ -1559,6 +1570,7 @@ class NodeConn(asyncore.dispatcher):
         self.dstaddr = dstaddr
         self.dstport = dstport
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.sendbuf = b""
         self.recvbuf = b""
         self.ver_send = 209
@@ -1708,7 +1720,14 @@ class NodeConn(asyncore.dispatcher):
             tmsg += h[:4]
         tmsg += data
         with mininode_lock:
-            self.sendbuf += tmsg
+            if (len(self.sendbuf) == 0 and not pushbuf):
+                try:
+                    sent = self.send(tmsg)
+                    self.sendbuf = tmsg[sent:]
+                except BlockingIOError:
+                    self.sendbuf = tmsg
+            else:
+                self.sendbuf += tmsg
             self.last_sent = time.time()
 
     def got_message(self, message):

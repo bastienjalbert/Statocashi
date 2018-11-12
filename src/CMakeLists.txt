@@ -33,15 +33,22 @@ add_compiler_flag(
 	-Wformat-security
 	-Wcast-align
 	-Wunused-parameter
+	# FIXME: Activating this flag cause cmake to fail on leveldb.
+	# -Wthread-safety-analysis
+	-Wshadow
 )
 
 option(EXTRA_WARNINGS "Enable extra warnings" OFF)
 if(EXTRA_WARNINGS)
-	add_compiler_flag(-Wshadow)
 	add_cxx_compiler_flag(-Wsuggest-override)
 else()
 	add_compiler_flag(-Wno-unused-parameter)
 endif()
+
+# Create a target for OpenSSL
+include(BrewHelper)
+find_brew_prefix(OPENSSL_ROOT_DIR openssl)
+find_package(OpenSSL REQUIRED)
 
 # libtool style configure
 add_subdirectory(config)
@@ -86,8 +93,6 @@ target_include_directories(util
 		.
 		# To access the config.
 		${CMAKE_CURRENT_BINARY_DIR}
-	PRIVATE
-		${OPENSSL_INCLUDE_DIR}
 )
 
 # Target specific configs
@@ -137,6 +142,7 @@ add_library(common
 	coins.cpp
 	compressor.cpp
 	dstencode.cpp
+	feerate.cpp
 	globals.cpp
 	core_read.cpp
 	core_write.cpp
@@ -164,6 +170,7 @@ add_library(bitcoinconsensus
 	script/interpreter.cpp
 	script/script.cpp
 	script/script_error.cpp
+	script/sigencoding.cpp
 	uint256.cpp
 	utilstrencodings.cpp
 )
@@ -179,6 +186,8 @@ add_library(server
 	chain.cpp
 	checkpoints.cpp
 	config.cpp
+	consensus/activation.cpp
+	consensus/tx_verify.cpp
 	globals.cpp
 	httprpc.cpp
 	httpserver.cpp
@@ -195,10 +204,12 @@ add_library(server
 	rest.cpp
 	rpc/abc.cpp
 	rpc/blockchain.cpp
+	rpc/jsonrpcrequest.cpp
 	rpc/mining.cpp
 	rpc/misc.cpp
 	rpc/net.cpp
 	rpc/rawtransaction.cpp
+	rpc/safemode.cpp
 	rpc/server.cpp
 	script/scriptcache.cpp
 	script/sigcache.cpp
@@ -216,25 +227,20 @@ add_library(server
 # This require libevent
 find_package(Event REQUIRED)
 
-target_include_directories(server
-	PRIVATE
-		leveldb/helpers/memenv
-		${EVENT_INCLUDE_DIR}
-)
+target_include_directories(server PRIVATE leveldb/helpers/memenv)
 
 target_link_libraries(server
-	${EVENT_LIBRARY}
+	Event
 	bitcoinconsensus
 	leveldb
 	memenv
 )
 
-if(NOT ${CMAKE_SYSTEM_NAME} MATCHES "Windows")
-	target_link_libraries(server ${EVENT_PTHREAD_LIBRARY})
-endif()
-
 # Test suite.
 add_subdirectory(test)
+
+# Benchmark suite.
+add_subdirectory(bench)
 
 # Wallet
 if(BUILD_BITCOIN_WALLET)
@@ -264,8 +270,7 @@ if(BUILD_BITCOIN_CLI)
 		target_sources(bitcoin-cli PRIVATE bitcoin-cli-res.rc)
 	endif()
 
-	target_include_directories(bitcoin-cli PRIVATE ${EVENT_INCLUDE_DIR})
-	target_link_libraries(bitcoin-cli common rpcclient ${EVENT_LIBRARY})
+	target_link_libraries(bitcoin-cli common rpcclient Event)
 endif()
 
 # bitcoin-tx

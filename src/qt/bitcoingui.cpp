@@ -55,14 +55,8 @@
 #include <QStyle>
 #include <QTimer>
 #include <QToolBar>
-#include <QVBoxLayout>
-
-#if QT_VERSION < 0x050000
-#include <QTextDocument>
-#include <QUrl>
-#else
 #include <QUrlQuery>
-#endif
+#include <QVBoxLayout>
 
 const std::string BitcoinGUI::DEFAULT_UIPLATFORM =
 #if defined(Q_OS_MAC)
@@ -80,23 +74,17 @@ const std::string BitcoinGUI::DEFAULT_UIPLATFORM =
  */
 const QString BitcoinGUI::DEFAULT_WALLET = "~Default";
 
-BitcoinGUI::BitcoinGUI(const Config *cfg, const PlatformStyle *_platformStyle,
+BitcoinGUI::BitcoinGUI(const Config *configIn,
+                       const PlatformStyle *_platformStyle,
                        const NetworkStyle *networkStyle, QWidget *parent)
-    : QMainWindow(parent), enableWallet(false), clientModel(0), walletFrame(0),
-      unitDisplayControl(0), labelWalletEncryptionIcon(0),
-      labelWalletHDStatusIcon(0), connectionsControl(0), labelBlocksIcon(0),
-      progressBarLabel(0), progressBar(0), progressDialog(0), appMenuBar(0),
-      overviewAction(0), historyAction(0), quitAction(0), sendCoinsAction(0),
-      sendCoinsMenuAction(0), usedSendingAddressesAction(0),
-      usedReceivingAddressesAction(0), signMessageAction(0),
-      verifyMessageAction(0), aboutAction(0), receiveCoinsAction(0),
-      receiveCoinsMenuAction(0), optionsAction(0), toggleHideAction(0),
-      encryptWalletAction(0), backupWalletAction(0), changePassphraseAction(0),
-      aboutQtAction(0), openRPCConsoleAction(0), openAction(0),
-      showHelpMessageAction(0), trayIcon(0), trayIconMenu(0), notificator(0),
-      rpcConsole(0), helpMessageDialog(0), modalOverlay(0), prevBlocks(0),
-      spinnerFrame(0), platformStyle(_platformStyle), cfg(cfg) {
-    GUIUtil::restoreWindowGeometry("nWindow", QSize(850, 550), this);
+    : QMainWindow(parent), enableWallet(false), platformStyle(_platformStyle),
+      config(configIn) {
+    QSettings settings;
+    if (!restoreGeometry(settings.value("MainWindowGeometry").toByteArray())) {
+        // Restore failed (perhaps missing setting), center the window
+        move(QApplication::desktop()->availableGeometry().center() -
+             frameGeometry().center());
+    }
 
     QString windowTitle = tr(PACKAGE_NAME) + " - ";
 #ifdef ENABLE_WALLET
@@ -116,18 +104,12 @@ BitcoinGUI::BitcoinGUI(const Config *cfg, const PlatformStyle *_platformStyle,
 #endif
     setWindowTitle(windowTitle);
 
-#if defined(Q_OS_MAC) && QT_VERSION < 0x050000
-    // This property is not implemented in Qt 5. Setting it has no effect.
-    // A replacement API (QtMacUnifiedToolBar) is available in QtMacExtras.
-    setUnifiedTitleAndToolBarOnMac(true);
-#endif
-
     rpcConsole = new RPCConsole(_platformStyle, 0);
     helpMessageDialog = new HelpMessageDialog(this, false);
 #ifdef ENABLE_WALLET
     if (enableWallet) {
         /** Create wallet frame and make it the central widget */
-        walletFrame = new WalletFrame(_platformStyle, cfg, this);
+        walletFrame = new WalletFrame(_platformStyle, config, this);
         setCentralWidget(walletFrame);
     } else
 #endif // ENABLE_WALLET
@@ -196,7 +178,7 @@ BitcoinGUI::BitcoinGUI(const Config *cfg, const PlatformStyle *_platformStyle,
     // Override style sheet for progress bar for styles that have a segmented
     // progress bar, as they make the text unreadable (workaround for issue
     // #1071)
-    // See https://qt-project.org/doc/qt-4.8/gallery.html
+    // See https://doc.qt.io/qt-5/gallery.html
     QString curStyle = QApplication::style()->metaObject()->className();
     if (curStyle == "QWindowsStyle" || curStyle == "QWindowsXPStyle") {
         progressBar->setStyleSheet(
@@ -241,7 +223,8 @@ BitcoinGUI::~BitcoinGUI() {
     // Unsubscribe from notifications from core
     unsubscribeFromCoreSignals();
 
-    GUIUtil::saveWindowGeometry("nWindow", this);
+    QSettings settings;
+    settings.setValue("MainWindowGeometry", saveGeometry());
     // Hide tray icon, as deleting will let it linger until quit (on Ubuntu)
     if (trayIcon) {
         trayIcon->hide();
@@ -285,7 +268,7 @@ void BitcoinGUI::createActions() {
         tr("&Receive"), this);
     receiveCoinsAction->setStatusTip(
         tr("Request payments (generates QR codes and %1: URIs)")
-            .arg(GUIUtil::bitcoinURIScheme(*cfg)));
+            .arg(GUIUtil::bitcoinURIScheme(*config)));
     receiveCoinsAction->setToolTip(receiveCoinsAction->statusTip());
     receiveCoinsAction->setCheckable(true);
     receiveCoinsAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_3));
@@ -411,7 +394,7 @@ void BitcoinGUI::createActions() {
     openAction = new QAction(platformStyle->TextColorIcon(":/icons/open"),
                              tr("Open &URI..."), this);
     openAction->setStatusTip(tr("Open a %1: URI or payment request")
-                                 .arg(GUIUtil::bitcoinURIScheme(*cfg)));
+                                 .arg(GUIUtil::bitcoinURIScheme(*config)));
 
     showHelpMessageAction =
         new QAction(platformStyle->TextColorIcon(":/icons/info"),
@@ -506,6 +489,7 @@ void BitcoinGUI::createMenuBar() {
 void BitcoinGUI::createToolBars() {
     if (walletFrame) {
         QToolBar *toolbar = addToolBar(tr("Tabs toolbar"));
+        toolbar->setContextMenuPolicy(Qt::PreventContextMenu);
         toolbar->setMovable(false);
         toolbar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         toolbar->addAction(overviewAction);
@@ -712,7 +696,7 @@ void BitcoinGUI::showHelpMessageClicked() {
 
 #ifdef ENABLE_WALLET
 void BitcoinGUI::openClicked() {
-    OpenURIDialog dlg(cfg, this);
+    OpenURIDialog dlg(config, this);
     if (dlg.exec()) {
         Q_EMIT receivedURI(dlg.getURI());
     }
@@ -1037,8 +1021,8 @@ void BitcoinGUI::incomingTransaction(const QString &date, int unit,
         msg += tr("Label: %1\n").arg(label);
     else if (!address.isEmpty())
         msg += tr("Address: %1\n").arg(address);
-    message(amount < Amount(0) ? tr("Sent transaction")
-                               : tr("Incoming transaction"),
+    message(amount < Amount::zero() ? tr("Sent transaction")
+                                    : tr("Incoming transaction"),
             msg, CClientUIInterface::MSG_INFORMATION);
 }
 #endif // ENABLE_WALLET

@@ -11,6 +11,7 @@
 #include "rpc/register.h"
 #include "rpc/server.h"
 #include "rpcconsole.h"
+#include "test/test_bitcoin.h"
 #include "test/testutil.h"
 #include "univalue.h"
 #include "util.h"
@@ -27,17 +28,13 @@ static UniValue rpcNestedTest_rpc(const Config &config,
     return request.params.write(0, 0);
 }
 
-static const CRPCCommand vRPCCommands[] = {
-    {"test", "rpcNestedTest", rpcNestedTest_rpc, true, {}},
+static const ContextFreeRPCCommand vRPCCommands[] = {
+    {"test", "rpcNestedTest", &rpcNestedTest_rpc, {}},
 };
 
 void RPCNestedTests::rpcNestedTests() {
-    UniValue jsonRPCError;
-
-    // Do some test setup could be moved to a more generic place when we add
-    // more tests on QT level
-    const Config &config = GetConfig();
-    RegisterAllRPCCommands(tableRPC);
+    // do some test setup
+    // could be moved to a more generic place when we add more tests on QT level
     tableRPC.appendCommand("rpcNestedTest", &vRPCCommands[0]);
     ClearDatadirCache();
     std::string path =
@@ -48,15 +45,8 @@ void RPCNestedTests::rpcNestedTests() {
     dir.mkpath(".");
     gArgs.ForceSetArg("-datadir", path);
     // mempool.setSanityCheck(1.0);
-    pblocktree = new CBlockTreeDB(1 << 20, true);
-    pcoinsdbview = new CCoinsViewDB(1 << 23, true);
-    pcoinsTip = new CCoinsViewCache(pcoinsdbview);
-    InitBlockIndex(config);
-    {
-        CValidationState state;
-        bool ok = ActivateBestChain(config, state);
-        QVERIFY(ok);
-    }
+
+    TestingSetup test;
 
     SetRPCWarmupFinished();
 
@@ -208,14 +198,6 @@ void RPCNestedTests::rpcNestedTests() {
         RPCConsole::RPCExecuteCommandLine(result, "rpcNestedTest(abc,,)"),
         std::runtime_error);
 #endif
-
-    UnloadBlockIndex();
-    delete pcoinsTip;
-    pcoinsTip = nullptr;
-    delete pcoinsdbview;
-    pcoinsdbview = nullptr;
-    delete pblocktree;
-    pblocktree = nullptr;
 
     fs::remove_all(fs::path(path));
 }

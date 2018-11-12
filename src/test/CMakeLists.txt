@@ -3,6 +3,8 @@
 project(bitcoin-test)
 
 # Process json files.
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/data")
+
 find_program(PYTHON python)
 function(gen_json_header NAME)
 	set(HEADERS "")
@@ -52,12 +54,15 @@ add_test_to_suite(bitcoin test_bitcoin
 	bip32_tests.cpp
 	blockcheck_tests.cpp
 	blockencodings_tests.cpp
+	blockindex_tests.cpp
 	blockstatus_tests.cpp
 	bloom_tests.cpp
 	bswap_tests.cpp
 	cashaddr_tests.cpp
 	cashaddrenc_tests.cpp
+	checkdatasig_tests.cpp
 	checkpoints_tests.cpp
+	checkqueue_tests.cpp
 	coins_tests.cpp
 	compress_tests.cpp
 	config_tests.cpp
@@ -68,6 +73,7 @@ add_test_to_suite(bitcoin test_bitcoin
 	DoS_tests.cpp
 	dstencode_tests.cpp
 	excessiveblock_tests.cpp
+	feerate_tests.cpp
 	getarg_tests.cpp
 	hash_tests.cpp
 	inv_tests.cpp
@@ -90,6 +96,7 @@ add_test_to_suite(bitcoin test_bitcoin
 	random_tests.cpp
 	reverselock_tests.cpp
 	rpc_tests.cpp
+	rwcollection_tests.cpp
 	sanity_tests.cpp
 	scheduler_tests.cpp
 	script_commitment_tests.cpp
@@ -98,12 +105,14 @@ add_test_to_suite(bitcoin test_bitcoin
 	scriptflags.cpp
 	scriptnum_tests.cpp
 	serialize_tests.cpp
+	sigencoding_tests.cpp
 	sighash_tests.cpp
 	sighashtype_tests.cpp
 	sigopcount_tests.cpp
 	sigutil.cpp
 	skiplist_tests.cpp
 	streams_tests.cpp
+	sync_tests.cpp
 	test_bitcoin.cpp
 	test_bitcoin_main.cpp
 	testutil.cpp
@@ -116,6 +125,10 @@ add_test_to_suite(bitcoin test_bitcoin
 	univalue_tests.cpp
 	util_tests.cpp
 	validation_tests.cpp
+	work_comparator_tests.cpp
+
+	# RPC Tests
+	../rpc/test/server_tests.cpp
 
 	# Tests generated from JSON
 	${JSON_HEADERS}
@@ -125,8 +138,6 @@ target_include_directories(test_bitcoin
 	PUBLIC
 		# To access the generated json headers.
 		${CMAKE_CURRENT_BINARY_DIR}
-	PRIVATE
-		${OPENSSL_INCLUDE_DIR}
 )
 
 find_package(Boost 1.58 REQUIRED unit_test_framework)
