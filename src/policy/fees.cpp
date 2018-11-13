@@ -456,7 +456,7 @@ void CBlockPolicyEstimator::processBlock(
     for (unsigned int i = 1; i <= MAX_BLOCK_CONFIRMS; i++)
     {
         std::string feeName = "estimates.fee.block" + boost::lexical_cast<std::string>(i);
-        double feeEstimate = (double)feeStats.EstimateMedianFeeRate(i, SUFFICIENT_FEETXS, MIN_SUCCESS_PCT, true, nBestSeenHeight).GetFeePerK();
+        double feeEstimate = (double)feeStats.EstimateMedianFeeRate(i, SUFFICIENT_FEETXS, MIN_SUCCESS_PCT, true, nBestSeenHeight).GetFeePerK().GetSatoshis();
         if (feeEstimate > 0) {
             statsClient.gauge(feeName, feeEstimate);
         } else {
