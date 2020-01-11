@@ -42,6 +42,8 @@ Version
 
 12 November 2018 : Upgrade to Bitcoin ABC v0.18.2/3 (Nov 2018 hard-fork)
 
+10 Junary 2020 : *Need last Bitcoin BCH ABC hard-fork upgrades* /!\
+
 Preview 
 -------
 [https://statocashi.info/]
